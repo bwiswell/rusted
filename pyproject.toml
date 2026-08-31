@@ -1,6 +1,6 @@
 [project]
 name = "rusted"
-version = "0.1.2"
+version = "0.2.0"
 description = "Compiled accelerator core for seared"
 authors = [
     { name = "Benj Wiswell", email = "benjwiswell@gmail.com" },

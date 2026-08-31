@@ -29,11 +29,14 @@ repos cannot drift apart on this:
 
 | op   | seared (pure Python) | with `rusted` | speedup |
 |------|---------------------:|--------------:|--------:|
-| load | 32.7 µs              | **2.9 µs**    | ~11.2×  |
-| dump | 22.5 µs              | **2.4 µs**    | ~9.4×   |
+| load | 34.6 µs              | **3.0 µs**    | ~11.4×  |
+| dump | 22.3 µs              | **2.4 µs**    | ~9.1×   |
 
-Run-to-run spread on this hardware is roughly ±10%; the ratios are the
-durable claim, the absolutes are one sample.
+One recorded run is one sample. On an idle machine repeated runs land within
+a few percent; under background load the spread reaches ±20% and drags the
+*ratio* with it — the load figure was seen anywhere from 10.0× to 11.8×
+while other work was running. Bench on a quiet box and read these as ~11×
+and ~9×.
 
 On `load`, validation becomes effectively free — strict and lax land within
 noise of each other, because the guards turn into C-level type checks

@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "rusted"
-version = "0.1.2"
+version = "0.2.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -208,7 +208,7 @@ dev = [
 
 [[package]]
 name = "seared"
-version = "0.2.9"
+version = "0.3.0"
 source = { editable = "../seared" }
 
 [package.metadata]

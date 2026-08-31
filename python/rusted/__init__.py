@@ -26,7 +26,7 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: version moves.
 SUPPORTS_SEARED = '>=0.2.8,<0.4'
 
-__version__ = '0.1.2'
+__version__ = '0.2.0'
 
 __all__ = [
     'BUILD_PROFILE',

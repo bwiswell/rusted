@@ -1,6 +1,6 @@
 [package]
 name = "rusted"
-version = "0.1.2"
+version = "0.2.0"
 edition = "2024"
 # Floor for building from source. `rust-toolchain.toml` pins what *we* build
 # with; this is what an sdist consumer needs at minimum.
