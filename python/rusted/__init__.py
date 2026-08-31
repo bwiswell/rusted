@@ -20,7 +20,7 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: it is zero-dependency and has no PEP 440 specifier parser to do it with.
 SUPPORTS_SEARED = '>=0.2.8,<0.3'
 
-__version__ = '0.1.0'
+__version__ = '0.1.1'
 
 __all__ = [
     'BUILD_PROFILE',

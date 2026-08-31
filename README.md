@@ -33,20 +33,35 @@ no compiled core can remove; a pure-Rust round trip of the same payload runs
 Per class, **all or nothing**. A class is accelerated only if every field —
 recursively, through `T` — is one this build implements:
 
-**Tier 1 (today):** `Int`, `Float`, `Str`, `Bool`, `T`, with `many`, `keyed`,
-`required`, `default`, `default_factory`, `data_key` and `dump=False`.
+- **Tier 1** — `Int`, `Float`, `Str`, `Bool`, `T`
+- **Tier 2** — `UUID`, `Date`, `DateTime`, `Time`, `TimeDelta`, `Decimal`,
+  `Bytes`, `Enum`, `Path`, `Dict`
 
-Everything else keeps the Python path: the remaining field types, `Union`,
-`Tuple`, the DataFrame fields, user-defined `Field` subclasses, and any class
-with a hand-written `__init__` or a `__post_init__` (the compiled core builds
-instances via `__new__`, which would skip them).
+with `many`, `keyed`, `required`, `default`, `default_factory`, `data_key`
+and `dump=False` on any of them.
+
+Still on the Python path, each for a reason: `Union` (an UNWRAP field
+consuming several keys from its *parent's* map), `Tuple` (per-slot
+sub-fields), `NDArray` / `PandasFrame` / `PolarsFrame` (optional imports, and
+dominated by frame conversion anyway), user-defined `Field` subclasses (they
+can override `serialize` in Python, so exact type identity is what gates
+acceleration), and any class with a hand-written `__init__` or a
+`__post_init__` (the compiled core builds instances via `__new__`, which
+would skip them).
+
+Tier 2 does not run 10× — those kinds spend their time constructing Python
+objects (`uuid.UUID`, `datetime.strptime`, `Decimal`), which is work no
+compiled core removes. On a realistic mixed message class it is ~2.6× load /
+~2.1× dump. The point of Tier 2 is that **all-or-nothing cuts both ways**: a
+single `Bytes` field used to disqualify an entire class, Tier 1 fields
+included. Now it doesn't.
 
 Ask seared what happened:
 
 ```python
 import seared as s
 
-s.accel_status()          # backend loaded? which one? if not, why not
+s.accel_status()  # backend loaded? which one? if not, why not
 MyClass.__seared_accel__  # AccelInfo(accelerated=..., backend=..., reason=...)
 ```
 

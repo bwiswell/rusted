@@ -10,7 +10,8 @@
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::kinds::{self, apply, type_name, verr};
+use crate::kinds::temporal::{self, DateKind};
+use crate::kinds::{apply, scalar, type_name, value, verr};
 use crate::spec::{FieldSpec, Kind, Schema};
 
 pub(crate) fn load(
@@ -84,10 +85,24 @@ fn de_one(
     let err = schema.error.bind(py);
     let validate = schema.validate;
     match &f.kind {
-        Kind::Int => kinds::de_int(py, v, validate, err),
-        Kind::Float => kinds::de_float(py, v, validate, err),
-        Kind::Str => kinds::de_str(py, v, validate, err),
-        Kind::Bool => kinds::de_bool(py, v, validate, err),
+        Kind::Int => scalar::de_int(py, v, validate, err),
+        Kind::Float => scalar::de_float(py, v, validate, err),
+        Kind::Str => scalar::de_str(py, v, validate, err),
+        Kind::Bool => scalar::de_bool(py, v, validate, err),
+        Kind::Uuid => value::de_uuid(py, v, err),
+        Kind::Date(fmt) => temporal::de_dateish(py, v, err, DateKind::Date, fmt.as_ref()),
+        Kind::DateTime(fmt) => temporal::de_dateish(py, v, err, DateKind::DateTime, fmt.as_ref()),
+        Kind::Time(fmt) => temporal::de_dateish(py, v, err, DateKind::Time, fmt.as_ref()),
+        Kind::TimeDelta => temporal::de_timedelta(py, v, err),
+        Kind::Decimal { .. } => value::de_decimal(py, v, validate, err),
+        Kind::Bytes { hex } => value::de_bytes(py, v, validate, err, *hex),
+        Kind::Enum {
+            cls,
+            name,
+            int_valued,
+        } => value::de_enum(py, v, err, cls.bind(py), name, *int_valued),
+        Kind::Path { concrete } => value::de_path(py, v, validate, err, concrete.bind(py)),
+        Kind::Dict => value::copy_dict(py, v, validate, err),
         Kind::Nested(sub) => {
             // T.deserialize: an already-built instance passes straight through;
             // otherwise the nested class loads under *its own* validate flag,

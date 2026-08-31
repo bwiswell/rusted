@@ -14,9 +14,18 @@ combination is the next step, not a finished job.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 import pytest
-from conftest import bench_schema, outcome
+import seared as s
+from conftest import Color, bench_schema, outcome, same
+
+if TYPE_CHECKING:
+    # Annotation-only: seared reads the Field defaults, not the annotations.
+    import datetime
+    import decimal
+    import pathlib
+    import uuid
 
 PAYLOAD = {
     'name': 'demo',
@@ -107,3 +116,111 @@ class TestCodecsRideAlong:
             slow.load(PAYLOAD, 'msgpack'),
             'msgpack',
         )
+
+
+# ---------------------------------------------------------------------------
+# A realistic mixed class — Tier 1 and Tier 2 together
+# ---------------------------------------------------------------------------
+
+
+def mixed_schema(*, validate: bool = True, accel: bool = True):
+    """The shape a real message class actually has.
+
+    Before Tier 2 this class was disqualified in its entirety by any one of
+    `when`, `blob`, `state` or `where` — all-or-nothing cuts both ways, which
+    is the whole reason Tier 2 exists.
+    """
+
+    @s.seared(accel=accel, validate=validate)
+    class Reading(s.Seared):
+        ident: uuid.UUID = s.UUID(required=True)
+        when: datetime.datetime = s.DateTime(required=True)
+        day: datetime.date = s.Date()
+        elapsed: datetime.timedelta = s.TimeDelta()
+        amount: decimal.Decimal = s.Decimal()
+        blob: bytes = s.Bytes()
+        state: Color = s.Enum(enum=Color)
+        where: pathlib.Path = s.Path()
+        extra: dict = s.Dict()
+        label: str = s.Str(required=True)
+        count: int = s.Int(default=0)
+        ratios: list[float] = s.Float(many=True, default_factory=list)
+
+    return Reading
+
+
+MIXED = {
+    'ident': '12345678-1234-5678-1234-567812345678',
+    'when': '2026-08-31T12:30:00',
+    'day': '2026-08-31',
+    'elapsed': 90.5,
+    'amount': '3.14159',
+    'blob': 'ZGVhZGJlZWY=',
+    'state': 1,
+    'where': 'a/b/c.txt',
+    'extra': {'k': 'v'},
+    'label': 'demo',
+    'count': 7,
+    'ratios': [1.0, 2.5],
+}
+
+MIXED_CASES = {
+    'valid': MIXED,
+    'minimal': {'ident': MIXED['ident'], 'when': MIXED['when'], 'label': 'x'},
+    'bad-uuid': {**MIXED, 'ident': 'not-a-uuid'},
+    'bad-datetime': {**MIXED, 'when': 'nope'},
+    'bad-date': {**MIXED, 'day': 99},
+    'bad-decimal': {**MIXED, 'amount': 'nope'},
+    'bad-bytes': {**MIXED, 'blob': 'not!base64!'},
+    'bad-enum': {**MIXED, 'state': 99},
+    'bad-path': {**MIXED, 'where': 7},
+    'bad-dict': {**MIXED, 'extra': [1]},
+    'bad-timedelta': {**MIXED, 'elapsed': 'nope'},
+    'nulls': dict.fromkeys(MIXED),
+    'missing-required': {'label': 'x'},
+}
+
+
+class TestMixedClassParity:
+    @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
+    def mixed(self, request):
+        validate = request.param
+        return (
+            mixed_schema(validate=validate, accel=True),
+            mixed_schema(validate=validate, accel=False),
+        )
+
+    def test_the_whole_class_is_accelerated(self):
+        fast = mixed_schema()
+        assert fast.__seared_accel__.accelerated is True, fast.__seared_accel__.reason
+
+    @pytest.mark.parametrize('case', list(MIXED_CASES))
+    def test_load(self, mixed, case):
+        fast, slow = mixed
+        payload = MIXED_CASES[case]
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        if want[0] == 'raised':
+            assert same(got, want)
+        else:
+            assert got[0] == 'ok'
+            assert same(fast.dump(got[1]), slow.dump(want[1]))
+
+    @pytest.mark.parametrize('case', list(MIXED_CASES))
+    def test_round_trip(self, mixed, case):
+        fast, slow = mixed
+        payload = MIXED_CASES[case]
+        try:
+            fast_obj, slow_obj = fast.load(payload), slow.load(payload)
+        except Exception:  # noqa: BLE001 — load parity is the other test's job
+            pytest.skip('payload does not load')
+        assert same(outcome(fast.dump, fast_obj), outcome(slow.dump, slow_obj))
+
+    def test_valid_payload_round_trips_exactly(self, mixed):
+        fast, _slow = mixed
+        assert fast.dump(fast.load(MIXED)) == MIXED
+
+    def test_msgpack_carrier_switches_bytes(self, mixed):
+        fast, slow = mixed
+        a, b = fast.load(MIXED, 'msgpack'), slow.load(MIXED, 'msgpack')
+        assert same(fast.dump(a, 'msgpack'), slow.dump(b, 'msgpack'))
+        assert fast.dump(a, 'msgpack')['blob'] == b'deadbeef'

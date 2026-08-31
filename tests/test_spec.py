@@ -7,6 +7,9 @@ on a malformed spec (a bug, which seared surfaces in the decline reason).
 
 from __future__ import annotations
 
+import enum
+import pathlib
+
 import pytest
 import rusted
 import seared as s
@@ -41,10 +44,16 @@ def spec(**overrides):
     return base
 
 
+#: A kind name that will never be implemented. Deliberately not a real-but-
+#: unsupported field type: `decimal` used to serve here, and these tests broke
+#: the day Tier 2 landed. The stand-in for "unknown" has to stay unknown.
+UNKNOWN_KIND = 'never-a-real-kind'
+
+
 class TestDeclines:
     def test_unknown_kind_declines(self):
         # Not an error: a newer seared may emit kinds this build predates.
-        assert rusted.compile_spec(spec(fields=[{**FIELD, 'kind': 'decimal'}])) is None
+        assert rusted.compile_spec(spec(fields=[{**FIELD, 'kind': UNKNOWN_KIND}])) is None
 
     def test_unknown_nested_kind_declines_the_parent(self):
         # Acceleration is per-class all-or-nothing, recursively.
@@ -53,9 +62,54 @@ class TestDeclines:
             'attr': 'b',
             'wire': 'b',
             'kind': 'nested',
-            'schema': spec(fields=[{**FIELD, 'kind': 'decimal'}]),
+            'schema': spec(fields=[{**FIELD, 'kind': UNKNOWN_KIND}]),
         }
         assert rusted.compile_spec(spec(fields=[nested])) is None
+
+    def test_empty_enum_declines(self):
+        # seared reads `next(iter(enum)).value` inside deserialize, so an empty
+        # enum raises StopIteration there. Declining keeps that happening at
+        # exactly the moment it always did, rather than at decoration time.
+        empty = enum.Enum('Empty', {})
+        field = {**FIELD, 'kind': 'enum', 'enum': empty}
+        assert rusted.compile_spec(spec(fields=[field])) is None
+
+
+class TestKindConfig:
+    """Per-kind configuration the spec must carry, and what happens without it."""
+
+    @pytest.mark.parametrize(
+        ('kind', 'config'),
+        [
+            ('bytes', {'encoding': 'hex'}),
+            ('date', {'format': None}),
+            ('datetime', {'format': '%Y'}),
+            ('time', {'format': None}),
+            ('decimal', {'as_number': False}),
+            ('path', {'concrete': pathlib.PurePosixPath}),
+        ],
+    )
+    def test_config_is_required(self, kind, config):
+        key = next(iter(config))
+        assert rusted.compile_spec(spec(fields=[{**FIELD, 'kind': kind, **config}])) is not None
+        with pytest.raises(KeyError, match=key):
+            rusted.compile_spec(spec(fields=[{**FIELD, 'kind': kind}]))
+
+    def test_enum_class_is_required(self):
+        with pytest.raises(KeyError, match='enum'):
+            rusted.compile_spec(spec(fields=[{**FIELD, 'kind': 'enum'}]))
+
+    def test_enum_must_be_a_class(self):
+        with pytest.raises(TypeError, match="needs an 'enum' class"):
+            rusted.compile_spec(spec(fields=[{**FIELD, 'kind': 'enum', 'enum': 'nope'}]))
+
+    def test_path_concrete_must_be_a_class(self):
+        with pytest.raises(TypeError, match="needs a 'concrete' class"):
+            rusted.compile_spec(spec(fields=[{**FIELD, 'kind': 'path', 'concrete': 'nope'}]))
+
+    @pytest.mark.parametrize('kind', ['uuid', 'timedelta', 'dict'])
+    def test_config_free_kinds(self, kind):
+        assert rusted.compile_spec(spec(fields=[{**FIELD, 'kind': kind}])) is not None
 
 
 class TestMalformed:
