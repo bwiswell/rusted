@@ -15,6 +15,7 @@ use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 mod dump;
+mod imports;
 mod kinds;
 mod load;
 mod spec;

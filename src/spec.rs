@@ -15,16 +15,42 @@
 
 use pyo3::exceptions::{PyKeyError, PyTypeError, PyValueError};
 use pyo3::prelude::*;
-use pyo3::types::{PyDict, PyList, PyString, PyType};
+use pyo3::types::{PyBool, PyDict, PyInt, PyList, PyString, PyType};
 
 use crate::SPEC_ABI;
 
 pub(crate) enum Kind {
+    // Tier 1
     Int,
     Float,
     Str,
     Bool,
     Nested(Box<Schema>),
+    // Tier 2 — parse-and-construct. Configuration that the *user* chose (an
+    // enum class, a concrete path type, a strftime format) arrives in the
+    // spec; how to use it is this crate's business.
+    Uuid,
+    Date(Option<Py<PyString>>),
+    DateTime(Option<Py<PyString>>),
+    Time(Option<Py<PyString>>),
+    TimeDelta,
+    Decimal {
+        as_number: bool,
+    },
+    Bytes {
+        hex: bool,
+    },
+    Enum {
+        cls: Py<PyType>,
+        name: String,
+        /// Whether members carry int values, decided once here rather than
+        /// re-derived from `next(iter(enum))` on every deserialize.
+        int_valued: bool,
+    },
+    Path {
+        concrete: Py<PyType>,
+    },
+    Dict,
 }
 
 pub(crate) struct FieldSpec {
@@ -60,6 +86,16 @@ fn item<'py>(d: &Bound<'py, PyDict>, key: &str) -> PyResult<Bound<'py, PyAny>> {
 
 fn flag(d: &Bound<'_, PyDict>, key: &str) -> PyResult<bool> {
     item(d, key)?.extract()
+}
+
+/// A date-like kind's optional `format=` (a strftime string), interned.
+fn opt_format(py: Python<'_>, d: &Bound<'_, PyDict>) -> PyResult<Option<Py<PyString>>> {
+    let v = item(d, "format")?;
+    if v.is_none() {
+        return Ok(None);
+    }
+    let s: String = v.extract()?;
+    Ok(Some(PyString::intern(py, &s).unbind()))
 }
 
 fn opt(d: &Bound<'_, PyDict>, key: &str) -> PyResult<Option<Py<PyAny>>> {
@@ -122,6 +158,47 @@ fn parse_field(py: Python<'_>, f: &Bound<'_, PyDict>) -> PyResult<Option<FieldSp
         "float" => Kind::Float,
         "str" => Kind::Str,
         "bool" => Kind::Bool,
+        "uuid" => Kind::Uuid,
+        "date" => Kind::Date(opt_format(py, f)?),
+        "datetime" => Kind::DateTime(opt_format(py, f)?),
+        "time" => Kind::Time(opt_format(py, f)?),
+        "timedelta" => Kind::TimeDelta,
+        "dict" => Kind::Dict,
+        "decimal" => Kind::Decimal {
+            as_number: flag(f, "as_number")?,
+        },
+        "bytes" => {
+            let encoding: String = item(f, "encoding")?.extract()?;
+            // seared treats anything that isn't 'hex' as base64.
+            Kind::Bytes {
+                hex: encoding == "hex",
+            }
+        }
+        "path" => Kind::Path {
+            concrete: item(f, "concrete")?
+                .downcast_into::<PyType>()
+                .map_err(|_| PyTypeError::new_err("a path field spec needs a 'concrete' class"))?
+                .unbind(),
+        },
+        "enum" => {
+            let cls = item(f, "enum")?
+                .downcast_into::<PyType>()
+                .map_err(|_| PyTypeError::new_err("an enum field spec needs an 'enum' class"))?;
+            // seared reads `next(iter(enum)).value` to choose int-vs-plain
+            // lookup, which raises StopIteration on an empty enum. Rather than
+            // reproduce that at *compile* time, decline and let the Python path
+            // raise it at the same moment seared always did.
+            let Some(first) = cls.as_any().try_iter()?.next() else {
+                return Ok(None);
+            };
+            let sample = first?.getattr("value")?;
+            let int_valued = sample.is_instance_of::<PyInt>() && !sample.is_instance_of::<PyBool>();
+            Kind::Enum {
+                name: cls.name()?.to_string(),
+                cls: cls.unbind(),
+                int_valued,
+            }
+        }
         "nested" => {
             let sub = item(f, "schema")?;
             let sub = sub

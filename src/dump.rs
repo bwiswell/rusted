@@ -8,7 +8,8 @@ use pyo3::exceptions::PyAttributeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
-use crate::kinds::{self, apply, type_name, verr};
+use crate::kinds::temporal::{self, DateKind};
+use crate::kinds::{apply, scalar, type_name, value, verr};
 use crate::spec::{FieldSpec, Kind, Schema};
 
 pub(crate) fn dump(
@@ -60,10 +61,27 @@ fn ser_one(
     let err = schema.error.bind(py);
     let validate = schema.validate;
     match &f.kind {
-        Kind::Int => kinds::ser_int(py, v, validate, err),
-        Kind::Float => kinds::ser_float(py, v, validate, err),
-        Kind::Str => kinds::ser_str(py, v, validate, err),
-        Kind::Bool => kinds::ser_bool(py, v, validate, err),
+        Kind::Int => scalar::ser_int(py, v, validate, err),
+        Kind::Float => scalar::ser_float(py, v, validate, err),
+        Kind::Str => scalar::ser_str(py, v, validate, err),
+        Kind::Bool => scalar::ser_bool(py, v, validate, err),
+        Kind::Uuid => value::ser_uuid(py, v, validate, err),
+        Kind::Date(fmt) => {
+            temporal::ser_dateish(py, v, validate, err, DateKind::Date, fmt.as_ref())
+        }
+        Kind::DateTime(fmt) => {
+            temporal::ser_dateish(py, v, validate, err, DateKind::DateTime, fmt.as_ref())
+        }
+        Kind::Time(fmt) => {
+            temporal::ser_dateish(py, v, validate, err, DateKind::Time, fmt.as_ref())
+        }
+        Kind::TimeDelta => temporal::ser_timedelta(py, v, validate, err),
+        Kind::Decimal { as_number } => value::ser_decimal(py, v, validate, err, *as_number),
+        // The only kind that reads the carrier hint.
+        Kind::Bytes { hex } => value::ser_bytes(py, v, validate, err, *hex, format),
+        Kind::Enum { cls, name, .. } => value::ser_enum(v, validate, err, cls.bind(py), name),
+        Kind::Path { .. } => value::ser_path(py, v, validate, err),
+        Kind::Dict => value::copy_dict(py, v, validate, err),
         Kind::Nested(sub) => {
             // T.serialize guards with the *parent's* validate flag, then dumps
             // through the nested class's own — two different flags, as in seared.
