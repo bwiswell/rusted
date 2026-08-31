@@ -5,10 +5,12 @@ project rests on: with rusted installed, a seared class behaves *identically*
 to one without it. Same values, same types, same exception classes, same
 message text.
 
-This is the seed of the generated matrix described in
-``project-plans/02-rusted-outline.md`` §8. It sweeps the payload shapes that
-have historically hidden divergence; broadening it to every kind and flag
-combination is the next step, not a finished job.
+This is a seed, not the finished sweep. It covers the payload shapes that
+have historically hidden divergence — coercions, wrong types, container shape
+mismatches, nulls, absent keys. The intended end state is generated rather
+than hand-written: every supported kind, crossed with every flag
+(``many`` / ``keyed`` / ``required`` / defaults), crossed with strict and lax.
+Until then, a kind added without a case here is a kind nothing is checking.
 """
 
 from __future__ import annotations

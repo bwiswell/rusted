@@ -116,5 +116,25 @@ SEARED_ACCEL=require SEARED_ACCEL_BACKEND=rusted uv run pytest
 
 If that diverges from a plain run, the accelerator is wrong, not seared.
 
-Design notes and the roadmap beyond Tier 1 live in
-`~/zeared/project-plans/02-rusted-outline.md`.
+## Roadmap
+
+Deferred, each for a reason rather than for lack of time:
+
+- **`Union` / `Tuple`.** `Union` is an UNWRAP field — it consumes several keys
+  from its *parent's* map and merges its output back at the parent's level,
+  which the single-pass interpreter here is not shaped for. `Tuple` carries
+  per-slot sub-fields, a second dimension of nesting.
+- **`NDArray` / `PandasFrame` / `PolarsFrame`.** Optional imports crossing the
+  boundary, for workloads whose cost is the frame conversion either way.
+- **A fused bytes path** (parse JSON or msgpack straight into instances,
+  skipping the intermediate dict). Prototyped at ~7.5× end-to-end, but it
+  cannot be a silent swap: a streaming parser cannot reproduce seared's
+  shape-mismatch messages, nor its lax `str(list)` coercion, and serde rejects
+  the `NaN` / `Infinity` that `json.dumps` writes. It would have to be an
+  explicitly-named opt-in surface, not a transparent replacement.
+- **Free-threaded (3.14t) wheels.** A separate ABI from abi3; the pure-Python
+  fallback already covers those interpreters correctly.
+
+Not deferred, and not planned: hybrid per-field acceleration. A Rust loop
+calling back into Python for one exotic field would cost most of the win on a
+mixed class and double the semantics under test.
