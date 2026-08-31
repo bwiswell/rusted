@@ -1,0 +1,79 @@
+[project]
+name = "rusted"
+version = "0.1.0"
+description = "Compiled accelerator core for seared"
+authors = [
+    { name = "Benj Wiswell", email = "benjwiswell@gmail.com" },
+]
+requires-python = ">=3.14,<4.0"
+# Never depends on seared at runtime — it consumes a plain-data spec and
+# knows nothing about Field objects. seared is a test-only dependency.
+dependencies = []
+
+[dependency-groups]
+dev = [
+    "deptry",
+    "maturin>=1.7,<2.0",
+    "prek",
+    "pytest>=8.0,<9.0",
+    "ruff",
+    "seared",
+    "ty",
+]
+
+[tool.uv.sources]
+# Local sibling during development, so seam changes are testable without a push.
+seared = { path = "../seared", editable = true }
+
+[build-system]
+requires = ["maturin>=1.7,<2.0"]
+build-backend = "maturin"
+
+[tool.maturin]
+module-name = "rusted._rusted"
+python-source = "python"
+strip = true
+
+[tool.ruff]
+line-length = 120
+target-version = "py314"
+indent-width = 4
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+    "COM",     # comma rules (formatter owns these)
+    "CPY",     # copyright notice at top of file
+    "D100",    # missing docstring in public module
+    "D101",    # missing docstring in public class
+    "D104",    # missing docstring in public package
+    "PLC0415", # allow intentional lazy imports
+    "TD",      # TODO formatting
+    "FIX002",  # disallow TODOs
+    "TRY003",  # long messages outside exception class
+    # --- rusted-specific ---
+    "ANN401",  # `Any` *is* the spec boundary type — specs are plain data
+    "A002",    # the carrier-hint kwarg is spelled `format=`, mirroring seared
+]
+fixable = ["ALL"]
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S", "SLF", "ANN", "D", "INP", "ARG", "PLR", "N", "DTZ"]
+
+[tool.ruff.format]
+docstring-code-format = true
+line-ending = "lf"
+quote-style = "single"
+
+[tool.ty.src]
+exclude = ["tests"]
+
+[tool.pytest.ini_options]
+pythonpath = ["tests"]
+addopts = "--import-mode=importlib"

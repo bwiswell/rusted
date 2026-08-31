@@ -1,0 +1,7 @@
+# Pinned so every clone and CI runner compiles with the same toolchain, and
+# clippy lints don't drift under us on a stable release. Bump deliberately.
+# The *minimum* supported version is Cargo.toml's `rust-version`, which is a
+# looser floor for anyone building the sdist.
+[toolchain]
+channel = "1.98.0"
+components = ["rustfmt", "clippy"]

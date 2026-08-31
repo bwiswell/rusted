@@ -1,0 +1,25 @@
+[package]
+name = "rusted"
+version = "0.1.0"
+edition = "2024"
+# Floor for building from source. `rust-toolchain.toml` pins what *we* build
+# with; this is what an sdist consumer needs at minimum.
+rust-version = "1.85"
+description = "Compiled accelerator core for the seared serialization library"
+publish = false
+
+[lib]
+name = "_rusted"
+crate-type = ["cdylib"]
+
+[dependencies]
+# abi3-py314 collapses the Python-minor axis of the wheel matrix: one wheel
+# per platform, forward-compatible with 3.15+. seared requires >=3.14 anyway.
+pyo3 = { version = "0.26", features = ["extension-module", "abi3-py314"] }
+
+# How a real wheel ships. Deliberately no `panic = "abort"` — PyO3 converts a
+# Rust panic into a Python exception, and aborting would take the interpreter
+# down instead.
+[profile.release]
+lto = true
+codegen-units = 1
