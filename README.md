@@ -12,20 +12,37 @@ uv add git+https://www.github.com/bwiswell/rusted.git
 That is the entire user-facing API. There is nothing to import and nothing to
 call — seared finds it.
 
+**A git install builds from source and needs a Rust toolchain** (`rustup`,
+1.85+). That is the current state, not the intent: the point of an accelerator
+is that it arrives as a prebuilt wheel, and a git source can't serve one. Until
+it is published to an index, treat this as developer-only — and note that a
+failed *install* is the one failure mode this design can't turn into a graceful
+fallback, since seared can only degrade around a wheel that is absent, not one
+that is broken.
+
 ## What it buys
 
-Measured on seared's own bench schema and harness (20k iterations, one
-process, Python 3.14.3, Linux x86_64):
+Measured by seared's own bench harness (20k iterations, one process, Python
+3.14.3, Linux x86_64), from the run recorded in seared's
+`bench/results.json` — the same artifact seared's own docs quote, so the two
+repos cannot drift apart on this:
 
 | op   | seared (pure Python) | with `rusted` | speedup |
 |------|---------------------:|--------------:|--------:|
-| load | 32.4 µs              | **3.0 µs**    | ~10.7×  |
-| dump | 21.2 µs              | **2.4 µs**    | ~8.7×   |
+| load | 32.7 µs              | **2.9 µs**    | ~11.2×  |
+| dump | 22.5 µs              | **2.4 µs**    | ~9.4×   |
 
-Validation becomes near-free — strict and lax differ by a few percent,
-because the guards are C-level pointer type checks rather than `isinstance`
-calls. The remaining cost is dominated by Python object construction, which
-no compiled core can remove; a pure-Rust round trip of the same payload runs
+Run-to-run spread on this hardware is roughly ±10%; the ratios are the
+durable claim, the absolutes are one sample.
+
+On `load`, validation becomes effectively free — strict and lax land within
+noise of each other, because the guards turn into C-level type checks
+instead of `isinstance` calls. On `dump` strict still costs ~15%, in *both*
+implementations: there the guards are most of what the pass does, so making
+them cheaper doesn't make them disappear.
+
+The remaining cost is dominated by Python object construction, which no
+compiled core can remove; a pure-Rust round trip of the same payload runs
 ~2.0 µs, so there is no second order of magnitude waiting behind this one.
 
 ## What gets accelerated
