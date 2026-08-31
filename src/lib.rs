@@ -9,7 +9,10 @@
 //! interprets a spec tree and nothing else, which is what keeps the family's
 //! dependency arrow pointing one way.
 //!
-//! See `~/zeared/project-plans/02-rusted-outline.md` for the design.
+//! Layout: `spec` ingests the plain-data tree into something the hot loop can
+//! walk; `kinds` holds the per-field coercions, each a transcription of one
+//! seared field method; `load` and `dump` walk a schema in either direction.
+//! `imports` caches the stdlib types the parse-and-construct kinds build.
 
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
