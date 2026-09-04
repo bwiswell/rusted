@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import seared as s
-from conftest import bench_schema, one_field, outcome, raw
+from conftest import bench_schema, nested_bytes_schema, one_field, outcome, raw
 
 PAYLOAD = {
     'name': 'demo',
@@ -53,6 +53,22 @@ class TestNested:
     def test_nested_dump_matches(self, pair):
         fast, slow = pair
         assert fast.dump(fast.load(PAYLOAD))['items'] == slow.dump(slow.load(PAYLOAD))['items']
+
+    @pytest.mark.parametrize('fmt', ['json', 'msgpack'])
+    def test_format_hint_crosses_the_nesting_boundary(self, fmt):
+        # The one place the carrier hint is observable is a `Bytes` *inside*
+        # a nested class. Before seared 0.3.1 `T` dropped the hint, so pure
+        # seared emitted base64 under msgpack where this core went native —
+        # the differential suite's blind spot, since the bench schema is
+        # Tier 1 only.
+        fast, slow = nested_bytes_schema(accel=True), nested_bytes_schema(accel=False)
+        assert fast.__seared_accel__.accelerated is True, fast.__seared_accel__.reason
+        a = raw(fast, one=raw(fast.__inner__, blob=b'\x01'), many=[raw(fast.__inner__, blob=b'\x02')])
+        b = raw(slow, one=raw(slow.__inner__, blob=b'\x01'), many=[raw(slow.__inner__, blob=b'\x02')])
+        got, want = fast.dump(a, fmt), slow.dump(b, fmt)
+        assert got == want
+        expected_blob = b'\x01' if fmt == 'msgpack' else 'AQ=='
+        assert got['one']['blob'] == expected_blob
 
 
 class TestContainers:

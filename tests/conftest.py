@@ -191,6 +191,28 @@ def bench_schema(*, validate: bool = True, accel: bool = True):
     return Outer
 
 
+def nested_bytes_schema(*, validate: bool = True, accel: bool = True):
+    """A `Bytes` behind a `T` — the one shape where `format=` is observable.
+
+    The bench schema is Tier 1 and ignores the carrier hint, so a core that
+    threaded `format=` through nested classes while seared dropped it (as it
+    did before 0.3.1) passed every other test here. The inner class is
+    exposed as ``Outer.__inner__`` so tests can build instances of it.
+    """
+
+    @s.seared(accel=accel, validate=validate)
+    class Inner(s.Seared):
+        blob: bytes = s.Bytes(required=True)
+
+    @s.seared(accel=accel, validate=validate)
+    class Outer(s.Seared):
+        one: Inner = s.T(Inner, required=True)
+        many: list[Inner] = s.T(Inner, many=True, default_factory=list)
+
+    Outer.__inner__ = Inner
+    return Outer
+
+
 def raw(cls, **attrs):
     """An instance with attributes set directly, skipping ``__init__``.
 
