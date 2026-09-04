@@ -1,6 +1,6 @@
 [project]
 name = "rusted"
-version = "0.2.1"
+version = "0.3.0"
 description = "Compiled accelerator core for seared"
 authors = [
     { name = "Benj Wiswell", email = "benjwiswell@gmail.com" },
@@ -17,13 +17,17 @@ dev = [
     "prek",
     "pytest>=8.0,<9.0",
     "ruff",
-    "seared",
+    # Test-only, and the floor is the seared whose *parity* this build holds
+    # against — the same range `SUPPORTS_SEARED` declares.
+    "seared>=0.3.1,<0.4",
     "ty",
 ]
 
 [tool.uv.sources]
-# Local sibling during development, so seam changes are testable without a push.
-seared = { path = "../seared", editable = true }
+# The remote, as zeared does. To test a seam change before it is pushed,
+# point this at the sibling checkout locally:
+#   seared = { path = "../seared", editable = true }
+seared = { git = "https://github.com/bwiswell/seared" }
 
 [build-system]
 requires = ["maturin>=1.7,<2.0"]
@@ -38,12 +42,16 @@ strip = true
 line-length = 120
 target-version = "py314"
 indent-width = 4
+# Ruff formats Python code blocks inside Markdown. Off here, as in seared and
+# zeared: the README's blocks are illustrative and laid out by hand.
+extend-exclude = ["*.md"]
 
 [tool.ruff.lint]
 select = ["ALL"]
 ignore = [
     "COM",     # comma rules (formatter owns these)
     "CPY",     # copyright notice at top of file
+    "FLY",     # str.join -> f-string (we join to avoid the {{}} brace footgun)
     "D100",    # missing docstring in public module
     "D101",    # missing docstring in public class
     "D104",    # missing docstring in public package

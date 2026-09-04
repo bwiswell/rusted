@@ -136,6 +136,10 @@ SEARED_ACCEL=require SEARED_ACCEL_BACKEND=rusted uv run pytest
 
 If that diverges from a plain run, the accelerator is wrong, not seared.
 
+Tests mirror the source layout exactly — one `test_*.py` per Rust source
+file (`tests/kinds/test_scalar.py` for `src/kinds/scalar.rs`, and so on),
+plus `test_differential.py` for the contract as a whole.
+
 ## Roadmap
 
 Deferred, each for a reason rather than for lack of time:

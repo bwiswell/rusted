@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "rusted"
-version = "0.2.1"
+version = "0.3.0"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -202,41 +202,14 @@ dev = [
     { name = "prek" },
     { name = "pytest", specifier = ">=8.0,<9.0" },
     { name = "ruff" },
-    { name = "seared", editable = "../seared" },
+    { name = "seared", git = "https://github.com/bwiswell/seared" },
     { name = "ty" },
 ]
 
 [[package]]
 name = "seared"
 version = "0.3.1"
-source = { editable = "../seared" }
-
-[package.metadata]
-requires-dist = [
-    { name = "marshmallow", marker = "extra == 'bench'", specifier = ">=3.26,<5.0" },
-    { name = "numpy", marker = "extra == 'all'", specifier = ">=2.4.2,<3.0" },
-    { name = "numpy", marker = "extra == 'numpy'", specifier = ">=2.4.2,<3.0" },
-    { name = "pandas", marker = "extra == 'all'", specifier = ">=2.0" },
-    { name = "pandas", marker = "extra == 'pandas'", specifier = ">=2.0" },
-    { name = "polars", marker = "extra == 'all'", specifier = ">=1.0" },
-    { name = "polars", marker = "extra == 'polars'", specifier = ">=1.0" },
-    { name = "pydantic", marker = "extra == 'bench'", specifier = ">=2.11,<3.0" },
-    { name = "pyyaml", marker = "extra == 'all'", specifier = ">=6.0" },
-    { name = "pyyaml", marker = "extra == 'yaml'", specifier = ">=6.0" },
-    { name = "tomli-w", marker = "extra == 'all'", specifier = ">=1.0" },
-    { name = "tomli-w", marker = "extra == 'toml'", specifier = ">=1.0" },
-]
-provides-extras = ["numpy", "yaml", "toml", "pandas", "polars", "all", "bench"]
-
-[package.metadata.requires-dev]
-dev = [
-    { name = "deptry" },
-    { name = "prek" },
-    { name = "pytest", specifier = ">=8.0,<9.0" },
-    { name = "ruff" },
-    { name = "seared", extras = ["all"] },
-    { name = "ty" },
-]
+source = { git = "https://github.com/bwiswell/seared#164f358947ff6e40f3775d81864787f362fdbf7b" }
 
 [[package]]
 name = "tomli"
