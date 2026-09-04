@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import seared as s
-from conftest import bench_schema, load_outcome, one_field, outcome
+from conftest import bench_schema, load_outcome, nested_bytes_schema, one_field, outcome
 
 PAYLOAD = {
     'name': 'demo',
@@ -92,6 +92,17 @@ class TestNested:
         assert Outer.__seared_accel__.accelerated is True
         assert Outer.load({'inner': {'x': True}}).inner.x == 1
 
+    @pytest.mark.parametrize('fmt', ['json', 'msgpack'])
+    def test_format_hint_crosses_the_nesting_boundary(self, fmt):
+        # Load-side twin of the dump test: `Bytes` accepts raw bytes off a
+        # binary carrier and base64 text off JSON, and both must reach a
+        # nested class identically on either path.
+        fast, slow = nested_bytes_schema(accel=True), nested_bytes_schema(accel=False)
+        blob = b'\x01' if fmt == 'msgpack' else 'AQ=='
+        payload = {'one': {'blob': blob}, 'many': [{'blob': blob}]}
+        a, b = fast.load(payload, fmt), slow.load(payload, fmt)
+        assert (a.one.blob, a.many[0].blob) == (b.one.blob, b.many[0].blob) == (b'\x01', b'\x01')
+
     def test_malformed_nested(self, pair):
         fast, slow = pair
         for items in ([7], [None], ['x'], [{}], {}, 7):
@@ -119,6 +130,25 @@ class TestConstruction:
         a.extra = 1
         b.extra = 1
         assert (a.extra, hasattr(a, '__dict__')) == (b.extra, hasattr(b, '__dict__'))
+
+    def test_plain_dataclass_field_declines(self):
+        # `b` is a dataclass field but not a seared Field: it never reaches
+        # the spec, and only `__init__` would set it. Pure seared runs
+        # `__init__` from `load`; this core builds through `__new__` and
+        # would leave the slot unset, so seared (0.3.1+) must decline the
+        # class rather than hand it over.
+        @s.seared
+        class Mixed(s.Seared):
+            a: int = s.Int(required=True)
+            b: int = 5
+
+        info = Mixed.__seared_accel__
+        assert info.accelerated is False
+        assert 'Mixed.b is a plain dataclass field' in info.reason
+        obj = Mixed.load({'a': 1})
+        assert (obj.a, obj.b) == (1, 5)
+        assert repr(obj) == repr(Mixed(a=1))
+        assert obj == Mixed(a=1)
 
     def test_slots_false_classes_load(self):
         fast = bench_schema(accel=True)
