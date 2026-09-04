@@ -61,7 +61,12 @@ KIND_FIELDS = {
 }
 
 TIER1 = ['int', 'float', 'str', 'bool']
-TIER2 = ['uuid', 'date', 'datetime', 'time', 'timedelta', 'decimal', 'bytes', 'enum', 'path', 'dict']
+#: Tier 2, split the way ``src/kinds/`` is: the date-likes in ``temporal.rs``,
+#: the rest in ``value.rs``.
+TEMPORAL = ['date', 'datetime', 'time', 'timedelta']
+VALUE = ['uuid', 'decimal', 'bytes', 'enum', 'path', 'dict']
+TIER2 = TEMPORAL + VALUE
+MODES = [(True, 'strict'), (False, 'lax')]
 
 #: Config a field type cannot be constructed without.
 KIND_KWARGS = {'enum': {'enum': Color}}
