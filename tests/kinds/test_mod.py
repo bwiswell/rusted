@@ -10,19 +10,18 @@ the shapes wrapped around it.
 from __future__ import annotations
 
 import pytest
-from conftest import MODES, TIER1, load_outcome, one_field, same
+from conftest import TIER1_MODES, load_outcome, one_field, same
 
 
-@pytest.mark.parametrize('kind', TIER1)
-@pytest.mark.parametrize(('validate', 'mode'), MODES, ids=[m[1] for m in MODES])
+@pytest.mark.parametrize(('kind', 'validate'), TIER1_MODES)
 class TestContainerParity:
-    def test_many(self, kind, validate, mode):
+    def test_many(self, kind, validate):
         fast = one_field(kind, validate=validate, accel=True, many=True)
         slow = one_field(kind, validate=validate, accel=False, many=True)
         for payload in ([], [1], ['x'], [None], (1, 2), 'not-a-list', 7, None, {'a': 1}):
             assert same(load_outcome(fast, {'v': payload}), load_outcome(slow, {'v': payload}))
 
-    def test_keyed(self, kind, validate, mode):
+    def test_keyed(self, kind, validate):
         fast = one_field(kind, validate=validate, accel=True, keyed=True)
         slow = one_field(kind, validate=validate, accel=False, keyed=True)
         for payload in ({}, {'a': 1}, {'a': 'x'}, {'a': None}, [1], 'nope', 7, None):

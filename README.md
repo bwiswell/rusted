@@ -69,6 +69,12 @@ acceleration), and any class with a hand-written `__init__` or a
 `__post_init__` (the compiled core builds instances via `__new__`, which
 would skip them).
 
+One more, until the next `SPEC_ABI`: a `validate=False` class with a `Bool`
+field, and any class nesting one. seared 0.3.3 fixed lax `Bool` (`'false'`
+used to load as `True`) and this core still gives the old answer, so seared
+keeps those classes on the Python path rather than let the answer depend on
+which wheel is installed. Strict `Bool` is unaffected.
+
 Tier 2 does not run 10× — those kinds spend their time constructing Python
 objects (`uuid.UUID`, `datetime.strptime`, `Decimal`), which is work no
 compiled core removes. On a realistic mixed message class it is ~2.6× load /

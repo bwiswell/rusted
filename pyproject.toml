@@ -1,6 +1,6 @@
 [project]
 name = "rusted"
-version = "0.3.0"
+version = "0.3.1"
 description = "Compiled accelerator core for seared"
 authors = [
     { name = "Benj Wiswell", email = "benjwiswell@gmail.com" },
@@ -17,9 +17,9 @@ dev = [
     "prek",
     "pytest>=8.0,<9.0",
     "ruff",
-    # Test-only, and the floor is the seared whose *parity* this build holds
-    # against — the same range `SUPPORTS_SEARED` declares.
-    "seared>=0.3.1,<0.4",
+    # Test-only, and the floor is the seared this build is tested against —
+    # the same range `SUPPORTS_SEARED` declares.
+    "seared>=0.3.3,<0.4",
     "ty",
 ]
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import seared as s
-from conftest import bench_schema, load_outcome, nested_bytes_schema, one_field, outcome
+from conftest import bench_schema, lax_tier1_schema, load_outcome, nested_bytes_schema, one_field, outcome
 
 PAYLOAD = {
     'name': 'demo',
@@ -163,17 +163,19 @@ class TestConstruction:
 
 
 class TestLaxMode:
+    # Over the bench schema minus its `Bool` until SPEC_ABI 2, which brings
+    # back `bench_schema(validate=False)` and a lax `flag` payload
+    # (`test_differential.py::TestLaxBoolAwaitsAbi2`).
     @pytest.mark.parametrize(
         'payload',
         [
             {'name': 42, 'items': []},
-            {'name': 'n', 'flag': 'nonsense', 'items': []},
             {'name': 'n', 'items': [{'x': True, 'y': 1}]},
             {'name': 'n', 'items': [], 'tags': 'notalist'},
         ],
     )
     def test_matches(self, payload):
-        fast = bench_schema(validate=False, accel=True)
-        slow = bench_schema(validate=False, accel=False)
+        fast = lax_tier1_schema(accel=True)
+        slow = lax_tier1_schema(accel=False)
         assert load_outcome(fast, payload, attr='name') == load_outcome(slow, payload, attr='name')
         assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
