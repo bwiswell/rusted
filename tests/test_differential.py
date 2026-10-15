@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import seared as s
-from conftest import Color, bench_schema, outcome, same
+from conftest import Color, bench_schema, checked, lax_tier1_schema, one_field, outcome, same
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
@@ -70,8 +70,11 @@ IDS = list(CASES)
 
 @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
 def schemas(request):
-    validate = request.param
-    return bench_schema(validate=validate, accel=True), bench_schema(validate=validate, accel=False)
+    if request.param:
+        return bench_schema(accel=True), bench_schema(accel=False)
+    # Lax `Bool` waits for SPEC_ABI 2 (see `LAX_TIER1`); this goes back to
+    # `bench_schema(validate=False)` with it.
+    return lax_tier1_schema(accel=True), lax_tier1_schema(accel=False)
 
 
 @pytest.mark.parametrize('case', IDS)
@@ -148,7 +151,7 @@ def mixed_schema(*, validate: bool = True, accel: bool = True):
         count: int = s.Int(default=0)
         ratios: list[float] = s.Float(many=True, default_factory=list)
 
-    return Reading
+    return checked(Reading, accel=accel)
 
 
 MIXED = {
@@ -226,3 +229,52 @@ class TestMixedClassParity:
         a, b = fast.load(MIXED, 'msgpack'), slow.load(MIXED, 'msgpack')
         assert same(fast.dump(a, 'msgpack'), slow.dump(b, 'msgpack'))
         assert fast.dump(a, 'msgpack')['blob'] == b'deadbeef'
+
+
+# ---------------------------------------------------------------------------
+# Lax `Bool` keeps the Python path until SPEC_ABI 2
+# ---------------------------------------------------------------------------
+
+LAX_BOOL_REASON = 'Bool under validate=False is not accelerated until SPEC_ABI 2'
+
+
+class TestLaxBoolAwaitsAbi2:
+    """seared 0.3.3's decline, seen from this side of the seam.
+
+    seared fixed lax ``Bool`` in Python (``'false'`` used to load as ``True``),
+    and this core still implements the ABI 1 answer, so seared declines any
+    lax class with a ``Bool`` rather than let the answer depend on which wheel
+    is installed. These are tripwires: when ``SPEC_ABI`` 2 lifts the decline
+    they fail, and the lax ``Bool`` work is due (``de_bool``, ``LAX_TIER1``).
+    """
+
+    def test_a_lax_class_with_a_bool_declines(self):
+        @s.seared(validate=False)
+        class Lax(s.Seared):
+            on: bool = s.Bool(required=True)
+
+        info = Lax.__seared_accel__
+        assert info.accelerated is False
+        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
+        # seared's own path gives the fixed answer.
+        assert Lax.load({'on': 'false'}).on is False
+
+    def test_a_strict_parent_nesting_one_declines(self):
+        @s.seared(validate=False)
+        class Lax(s.Seared):
+            on: bool = s.Bool(required=True)
+
+        @s.seared
+        class Parent(s.Seared):
+            inner: Lax = s.T(Lax, required=True)
+
+        info = Parent.__seared_accel__
+        assert info.accelerated is False
+        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
+
+    def test_strict_bool_still_accelerates(self):
+        checked(one_field('bool'), accel=True)
+        checked(bench_schema(), accel=True)
+
+    def test_lax_without_a_bool_still_accelerates(self):
+        checked(lax_tier1_schema(), accel=True)

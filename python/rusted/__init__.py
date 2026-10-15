@@ -19,16 +19,17 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: Diagnostic only. seared gates on :data:`SPEC_ABI` and never parses this —
 #: it is zero-dependency and has no PEP 440 specifier parser to do it with.
 #:
-#: The floor is the seared release this build's *parity* holds against —
-#: 0.3.1 threads ``format=`` through nested ``T`` and declines classes with
-#: plain dataclass attributes, both of which this core already did, so under
-#: an older seared the two paths observably differ. The ceiling is a guess
+#: The floor is the seared release this build is tested against. 0.3.3
+#: declines lax classes with a ``Bool``, whose ABI 1 answer this core still
+#: gives, so lax ``bool`` is untested here and older seareds are outside the
+#: tested range. Before 0.3.1 the two paths observably differ (``format=``
+#: through nested ``T``, plain dataclass attributes). The ceiling is a guess
 #: about where the spec might next change, not a tested boundary. Because
 #: nothing enforces it, it is the one thing here that can silently go stale —
 #: check it whenever seared's minor version moves.
-SUPPORTS_SEARED = '>=0.3.1,<0.4'
+SUPPORTS_SEARED = '>=0.3.3,<0.4'
 
-__version__ = '0.3.0'
+__version__ = '0.3.1'
 
 __all__ = [
     'BUILD_PROFILE',

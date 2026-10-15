@@ -68,6 +68,19 @@ VALUE = ['uuid', 'decimal', 'bytes', 'enum', 'path', 'dict']
 TIER2 = TEMPORAL + VALUE
 MODES = [(True, 'strict'), (False, 'lax')]
 
+#: Tier 1 minus ``bool``, for lax mode. seared 0.3.3 fixed lax ``Bool`` in
+#: Python and keeps lax classes with one off the accelerator until
+#: ``SPEC_ABI`` 2, since this core still implements the ABI 1 answer. ``bool``
+#: rejoins the lax sweeps with that ABI.
+LAX_TIER1 = ['int', 'float', 'str']
+
+#: ``(kind, validate)`` for each Tier 1 kind, in each mode it accelerates in.
+TIER1_MODES = [
+    pytest.param(kind, validate, id=f'{kind}-{mode}')
+    for validate, mode in MODES
+    for kind in (TIER1 if validate else LAX_TIER1)
+]
+
 #: Config a field type cannot be constructed without.
 KIND_KWARGS = {'enum': {'enum': Color}}
 
@@ -156,6 +169,22 @@ VALUE_IDS = [
 ]
 
 
+def checked(cls, *, accel: bool):
+    """``cls``, asserted to be on the path that was asked for.
+
+    Every builder below goes through this. A fast side that seared declined
+    would turn a parity test into Python compared with Python, and it would
+    pass: seared 0.3.3's lax ``Bool`` decline did exactly that to 102 cases
+    here before the builders checked.
+    """
+    info = cls.__seared_accel__
+    if accel:
+        assert info.accelerated is True, f'{cls.__qualname__} is not accelerated: {info.reason}'
+    else:
+        assert info.accelerated is False, f'{cls.__qualname__} is accelerated despite accel=False'
+    return cls
+
+
 def one_field(kind: str, *, validate: bool = True, accel: bool = True, **field_kwargs):
     """A one-field class of the given kind."""
     field = KIND_FIELDS[kind]
@@ -165,16 +194,12 @@ def one_field(kind: str, *, validate: bool = True, accel: bool = True, **field_k
     class C(s.Seared):
         v: object = field(**kwargs)
 
-    return C
+    return checked(C, accel=accel)
 
 
 def both(kind: str, **kwargs):
-    """``(accelerated, pure)`` one-field classes, asserted to differ only in that."""
-    fast = one_field(kind, accel=True, **kwargs)
-    slow = one_field(kind, accel=False, **kwargs)
-    assert fast.__seared_accel__.accelerated is True, f'{kind} is not accelerated: {fast.__seared_accel__.reason}'
-    assert slow.__seared_accel__.accelerated is False
-    return fast, slow
+    """``(accelerated, pure)`` one-field classes, differing only in that."""
+    return one_field(kind, accel=True, **kwargs), one_field(kind, accel=False, **kwargs)
 
 
 def bench_schema(*, validate: bool = True, accel: bool = True):
@@ -193,7 +218,30 @@ def bench_schema(*, validate: bool = True, accel: bool = True):
         items: list[Inner] = s.T(Inner, many=True, required=True)
         tags: list[str] = s.Str(many=True, default_factory=list)
 
-    return Outer
+    return checked(Outer, accel=accel)
+
+
+def lax_tier1_schema(*, accel: bool = True):
+    """The bench schema minus its ``Bool``, decorated lax: seared's own ``_lax_tier1``.
+
+    It stands in for ``bench_schema(validate=False)`` until ``SPEC_ABI`` 2,
+    which lax ``Bool`` waits for (see :data:`LAX_TIER1`). A ``flag`` in the
+    payload is then an unknown key, ignored on both paths.
+    """
+
+    @s.seared(accel=accel, validate=False)
+    class Inner(s.Seared):
+        x: int = s.Int(required=True)
+        y: float = s.Float(required=True)
+        label: str | None = s.Str(default=None)
+
+    @s.seared(accel=accel, validate=False)
+    class Outer(s.Seared):
+        name: str = s.Str(required=True)
+        items: list[Inner] = s.T(Inner, many=True, required=True)
+        tags: list[str] = s.Str(many=True, default_factory=list)
+
+    return checked(Outer, accel=accel)
 
 
 def nested_bytes_schema(*, validate: bool = True, accel: bool = True):
@@ -215,7 +263,7 @@ def nested_bytes_schema(*, validate: bool = True, accel: bool = True):
         many: list[Inner] = s.T(Inner, many=True, default_factory=list)
 
     Outer.__inner__ = Inner
-    return Outer
+    return checked(Outer, accel=accel)
 
 
 def raw(cls, **attrs):

@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "rusted"
-version = "0.3.0"
+version = "0.3.1"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -208,8 +208,8 @@ dev = [
 
 [[package]]
 name = "seared"
-version = "0.3.1"
-source = { git = "https://github.com/bwiswell/seared#164f358947ff6e40f3775d81864787f362fdbf7b" }
+version = "0.3.3"
+source = { git = "https://github.com/bwiswell/seared#10c59f5e55a9e1ae66aa87c4e68e7bc43a26261c" }
 
 [[package]]
 name = "tomli"
