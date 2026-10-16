@@ -31,7 +31,7 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: whenever seared's minor version moves.
 SUPPORTS_SEARED = '>=0.3.4,<0.4'
 
-__version__ = '0.3.1'
+__version__ = '0.3.2'
 
 __all__ = [
     'BUILD_PROFILE',
