@@ -11,7 +11,6 @@ from conftest import (
     NULL_BASE,
     NULL_COLUMNS,
     bench_schema,
-    lax_tier1_schema,
     load_outcome,
     nested_bytes_schema,
     null_schema,
@@ -178,21 +177,25 @@ class TestConstruction:
 
 
 class TestLaxMode:
-    # Over the bench schema minus its `Bool` until SPEC_ABI 2, which brings
-    # back `bench_schema(validate=False)` and a lax `flag` payload
-    # (`test_differential.py::TestLaxBoolAwaitsAbi2`).
+    # The whole bench schema, `Bool` included: lax `bool` reads the spelling
+    # table before truthiness, as seared's does (SPEC_ABI 2).
     @pytest.mark.parametrize(
         'payload',
         [
             {'name': 42, 'items': []},
             {'name': 'n', 'items': [{'x': True, 'y': 1}]},
             {'name': 'n', 'items': [], 'tags': 'notalist'},
+            {'name': 'n', 'items': [{'x': 3.7, 'y': 1}]},
+            {'name': 'n', 'items': [], 'flag': 'false'},
+            {'name': 'n', 'items': [], 'flag': ' OFF '},
+            {'name': 'n', 'items': [], 'flag': 'maybe'},
+            {'name': 'n', 'items': [], 'flag': 2},
         ],
     )
     def test_matches(self, payload):
-        fast = lax_tier1_schema(accel=True)
-        slow = lax_tier1_schema(accel=False)
-        assert load_outcome(fast, payload, attr='name') == load_outcome(slow, payload, attr='name')
+        fast = bench_schema(validate=False, accel=True)
+        slow = bench_schema(validate=False, accel=False)
+        assert load_outcome(fast, payload, attr='flag') == load_outcome(slow, payload, attr='flag')
         assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
 
 

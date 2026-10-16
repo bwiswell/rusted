@@ -11,6 +11,7 @@ from __future__ import annotations
 import datetime
 import decimal
 import enum
+import math
 import pathlib
 import uuid
 
@@ -68,18 +69,9 @@ VALUE = ['uuid', 'decimal', 'bytes', 'enum', 'path', 'dict']
 TIER2 = TEMPORAL + VALUE
 MODES = [(True, 'strict'), (False, 'lax')]
 
-#: Tier 1 minus ``bool``, for lax mode. seared 0.3.3 fixed lax ``Bool`` in
-#: Python and keeps lax classes with one off the accelerator until
-#: ``SPEC_ABI`` 2, since this core still implements the ABI 1 answer. ``bool``
-#: rejoins the lax sweeps with that ABI.
-LAX_TIER1 = ['int', 'float', 'str']
-
-#: ``(kind, validate)`` for each Tier 1 kind, in each mode it accelerates in.
-TIER1_MODES = [
-    pytest.param(kind, validate, id=f'{kind}-{mode}')
-    for validate, mode in MODES
-    for kind in (TIER1 if validate else LAX_TIER1)
-]
+#: ``(kind, validate)`` for each Tier 1 kind, in both modes. Lax ``bool``
+#: joined with ``SPEC_ABI`` 2, which carries seared 0.3.3's lax-``Bool`` fix.
+TIER1_MODES = [pytest.param(kind, validate, id=f'{kind}-{mode}') for validate, mode in MODES for kind in TIER1]
 
 #: Config a field type cannot be constructed without.
 KIND_KWARGS = {'enum': {'enum': Color}}
@@ -111,7 +103,10 @@ KIND_VALUES = {
     'timedelta': [0, 90.5, '90.5', -1, datetime.timedelta(seconds=90.5)],
     'decimal': ['3.14159', '1e400', 'nan', '0', 3.5, 1, decimal.Decimal('3.14')],
     'bytes': ['ZGVhZGJlZWY=', 'deadbeef', 'not!base64!', b'raw', bytearray(b'raw')],
-    'enum': [0, 1, 2, '0', 'RED', Color.RED],
+    # Int-valued: seared's `Int` rules pick the key, so a fractional float or a
+    # bool is refused in strict mode and truncated or read as 1 in lax mode;
+    # `inf` and a `Decimal` are refused in both.
+    'enum': [0, 1, 2, '0', 'RED', Color.RED, 1.0, 1.9, True, math.inf, decimal.Decimal(1)],
     'path': ['a/b/c.txt', '/abs/path', '', pathlib.Path('a/b')],
     'dict': [{}, {'k': 'v'}, {'n': 1}],
 }
@@ -125,8 +120,12 @@ VALUES = [
     7,
     -3,
     0,
+    1,
     7.9,
     -0.5,
+    3.0,
+    math.inf,
+    math.nan,
     True,
     False,
     '7',
@@ -148,8 +147,12 @@ VALUE_IDS = [
     'int7',
     'int-3',
     'int0',
+    'int1',
     'float7.9',
     'float-0.5',
+    'float3.0',
+    'inf',
+    'nan',
     'True',
     'False',
     'str7',
@@ -215,29 +218,6 @@ def bench_schema(*, validate: bool = True, accel: bool = True):
     class Outer(s.Seared):
         name: str = s.Str(required=True)
         flag: bool = s.Bool(default=False)
-        items: list[Inner] = s.T(Inner, many=True, required=True)
-        tags: list[str] = s.Str(many=True, default_factory=list)
-
-    return checked(Outer, accel=accel)
-
-
-def lax_tier1_schema(*, accel: bool = True):
-    """The bench schema minus its ``Bool``, decorated lax: seared's own ``_lax_tier1``.
-
-    It stands in for ``bench_schema(validate=False)`` until ``SPEC_ABI`` 2,
-    which lax ``Bool`` waits for (see :data:`LAX_TIER1`). A ``flag`` in the
-    payload is then an unknown key, ignored on both paths.
-    """
-
-    @s.seared(accel=accel, validate=False)
-    class Inner(s.Seared):
-        x: int = s.Int(required=True)
-        y: float = s.Float(required=True)
-        label: str | None = s.Str(default=None)
-
-    @s.seared(accel=accel, validate=False)
-    class Outer(s.Seared):
-        name: str = s.Str(required=True)
         items: list[Inner] = s.T(Inner, many=True, required=True)
         tags: list[str] = s.Str(many=True, default_factory=list)
 
@@ -324,41 +304,6 @@ def load_outcome(cls, payload, attr='v'):
         return failure(exc)
     value = getattr(obj, attr)
     return ('ok', value, type(value).__name__)
-
-
-# ---------------------------------------------------------------------------
-# rusted 0.4.0 is built in three branches: the error contract, the null rule,
-# then strict coercion. Under seared 0.4.0 a later one shows as differential
-# failures until its branch lands, so each such case is listed here with the
-# change that fixes it, and marked a strict xfail: it fails the moment it
-# passes, so no entry can outlive its fix. The coercion branch removes the
-# last entries, and this scaffold with them.
-# ---------------------------------------------------------------------------
-
-AWAITING = {
-    'strict coercion': [
-        'tests/kinds/test_mod.py::TestContainerParity::test_many[bool-strict]',
-        'tests/kinds/test_scalar.py::TestScalarParity::test_load[int7-bool-strict]',
-        'tests/kinds/test_scalar.py::TestScalarParity::test_load[int-3-bool-strict]',
-        'tests/kinds/test_scalar.py::TestScalarParity::test_load[float7.9-int-strict]',
-        'tests/kinds/test_scalar.py::TestScalarParity::test_load[float-0.5-int-strict]',
-        'tests/kinds/test_value.py::TestGenericSweep::test_load[float-0.5-strict-enum]',
-        'tests/kinds/test_value.py::TestGenericSweep::test_load[True-strict-enum]',
-        'tests/kinds/test_value.py::TestGenericSweep::test_load[False-strict-enum]',
-        'tests/test_differential.py::TestParity::test_load[strict-int-from-float]',
-        'tests/test_differential.py::TestLaxBoolAwaitsAbi2::test_a_lax_class_with_a_bool_declines',
-        'tests/test_differential.py::TestLaxBoolAwaitsAbi2::test_a_strict_parent_nesting_one_declines',
-    ],
-}
-
-
-def pytest_collection_modifyitems(items):
-    """Mark :data:`AWAITING`'s cases as strict xfails, naming the change each waits on."""
-    awaiting = {node: change for change, nodes in AWAITING.items() for node in nodes}
-    for item in items:
-        change = awaiting.get(item.nodeid)
-        if change is not None:
-            item.add_marker(pytest.mark.xfail(strict=True, reason=f'SPEC_ABI 2: awaits {change}'))
 
 
 def null_schema(*, validate: bool = True, accel: bool = True):
