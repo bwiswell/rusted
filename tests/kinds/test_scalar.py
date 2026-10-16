@@ -82,6 +82,7 @@ def _lax_bool_spec():
                 'wire': 'v',
                 'kind': 'bool',
                 'required': True,
+                'nullable': False,
                 'many': False,
                 'keyed': False,
                 'dump': True,

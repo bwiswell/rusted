@@ -71,8 +71,8 @@ recursively, through `T` — is one this build implements:
 - **Tier 2** — `UUID`, `Date`, `DateTime`, `Time`, `TimeDelta`, `Decimal`,
   `Bytes`, `Enum`, `Path`, `Dict`
 
-with `many`, `keyed`, `required`, `default`, `default_factory`, `data_key`
-and `dump=False` on any of them.
+with `many`, `keyed`, `required`, `nullable`, `default`, `default_factory`,
+`data_key` and `dump=False` on any of them.
 
 Still on the Python path, each for a reason: `Union` (an UNWRAP field
 consuming several keys from its *parent's* map), `Tuple` (per-slot

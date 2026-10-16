@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import seared as s
-from conftest import bench_schema, nested_bytes_schema, one_field, outcome, path_schema, raw
+from conftest import NULL_BASE, bench_schema, nested_bytes_schema, null_schema, one_field, outcome, path_schema, raw
 
 PAYLOAD = {
     'name': 'demo',
@@ -134,3 +134,45 @@ class TestErrorPaths:
             fast.dump(dict(_bad_objects(fast))['keyed-key'])
         # ``port`` is the attribute; ``p`` is its wire key, which a load path would name.
         assert (info.value.path, info.value.cls_name) == (('readers', 'r-1', 'port'), 'Root')
+
+
+class TestNullRule:
+    """Pin: ``dump`` writes ``None`` only on a nullable field, and leaves it out everywhere else."""
+
+    @pytest.fixture(scope='class')
+    def rows(self):
+        return null_schema(accel=True), null_schema(accel=False)
+
+    def test_only_a_nullable_none_is_written(self, rows):
+        fast, slow = rows
+        nones = {'n_dflt': None, 'n_req': None, 'n_many': None, 'n_keyed': None, 'n_leaf': None, 'bare': None}
+        got = fast.dump(fast(req=1, **nones))
+        assert got == slow.dump(slow(req=1, **nones))
+        assert got == {
+            'req': 1,
+            'dflt': 5,
+            'n_dflt': None,
+            'n_req': None,
+            'factory': [],
+            'n_many': None,
+            'n_keyed': None,
+            'n_leaf': None,
+        }
+
+    def test_an_unset_slot_counts_as_none(self, rows):
+        # seared reads with ``getattr(obj, attr, None)``, so on a nullable field
+        # an unset slot is written as ``None``.
+        fast, slow = rows
+        got = outcome(fast.dump, raw(fast, req=1))
+        assert got == outcome(slow.dump, raw(slow, req=1))
+        assert got[1] == {'req': 1, 'n_dflt': None, 'n_req': None, 'n_many': None, 'n_keyed': None, 'n_leaf': None}
+
+    def test_a_nullable_none_survives_a_round_trip_over_its_default(self, rows):
+        fast, _ = rows
+        row = fast(**NULL_BASE, n_dflt=None)
+        assert fast.load(fast.dump(row)).n_dflt is None
+
+    def test_dump_false_wins_over_nullable(self):
+        fast = one_field('str', accel=True, nullable=True, dump=False)
+        slow = one_field('str', accel=False, nullable=True, dump=False)
+        assert fast.dump(raw(fast, v=None)) == slow.dump(raw(slow, v=None)) == {}

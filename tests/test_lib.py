@@ -97,6 +97,7 @@ def spec_of(plain_cls):
                 'wire': 'a',
                 'kind': 'int',
                 'required': True,
+                'nullable': False,
                 'many': False,
                 'keyed': False,
                 'dump': True,

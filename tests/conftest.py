@@ -328,21 +328,14 @@ def load_outcome(cls, payload, attr='v'):
 
 # ---------------------------------------------------------------------------
 # rusted 0.4.0 is built in three branches: the error contract, the null rule,
-# then strict coercion. Under seared 0.4.0 the later two show as differential
-# failures until their branch lands, so each such case is listed here with the
+# then strict coercion. Under seared 0.4.0 a later one shows as differential
+# failures until its branch lands, so each such case is listed here with the
 # change that fixes it, and marked a strict xfail: it fails the moment it
 # passes, so no entry can outlive its fix. The coercion branch removes the
 # last entries, and this scaffold with them.
 # ---------------------------------------------------------------------------
 
 AWAITING = {
-    'the null rule': [
-        'tests/test_differential.py::TestParity::test_load[strict-str-none]',
-        'tests/test_differential.py::TestParity::test_load[lax-str-none]',
-        'tests/test_differential.py::TestMixedClassParity::test_load[strict-nulls]',
-        'tests/test_differential.py::TestMixedClassParity::test_load[lax-nulls]',
-        'tests/test_load.py::TestKeyResolution::test_explicit_null_beats_default',
-    ],
     'strict coercion': [
         'tests/kinds/test_mod.py::TestContainerParity::test_many[bool-strict]',
         'tests/kinds/test_scalar.py::TestScalarParity::test_load[int7-bool-strict]',
@@ -366,6 +359,52 @@ def pytest_collection_modifyitems(items):
         change = awaiting.get(item.nodeid)
         if change is not None:
             item.add_marker(pytest.mark.xfail(strict=True, reason=f'SPEC_ABI 2: awaits {change}'))
+
+
+def null_schema(*, validate: bool = True, accel: bool = True):
+    """One field per column of seared's null table, plus nullable containers.
+
+    ``req`` / ``dflt`` / ``bare`` aren't nullable, so a ``null`` reads as an
+    absent key; ``n_dflt`` / ``n_req`` are, so it's ``None``, even over a
+    default. The ``n_*`` containers and ``n_leaf`` are nullable as a whole.
+    """
+
+    @s.seared(accel=accel, validate=validate)
+    class Leaf(s.Seared):
+        n: int = s.Int(required=True)
+
+    @s.seared(accel=accel, validate=validate)
+    class Row(s.Seared):
+        req: int = s.Int(required=True)
+        dflt: int = s.Int(default=5)
+        bare: int | None = s.Int()
+        n_dflt: int | None = s.Int(nullable=True, default=5)
+        n_req: int | None = s.Int(nullable=True, required=True)
+        factory: list[int] = s.Int(many=True, default_factory=list)
+        n_many: list[int] | None = s.Int(many=True, nullable=True, default_factory=list)
+        n_keyed: dict[str, int] | None = s.Int(keyed=True, nullable=True)
+        leaf: Leaf | None = s.T(Leaf)
+        n_leaf: Leaf | None = s.T(Leaf, nullable=True)
+
+    return checked(Row, accel=accel)
+
+
+#: ``null_schema``'s columns, each with a value it loads.
+NULL_COLUMNS = {
+    'req': 7,
+    'dflt': 7,
+    'bare': 7,
+    'n_dflt': 7,
+    'n_req': 7,
+    'factory': [1],
+    'n_many': [1],
+    'n_keyed': {'a': 1},
+    'leaf': {'n': 1},
+    'n_leaf': {'n': 1},
+}
+
+#: The payload every other column is filled from, so only one column varies.
+NULL_BASE = {'req': 1, 'n_req': 2}
 
 
 def path_schema(*, accel: bool = True):

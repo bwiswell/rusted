@@ -1,8 +1,9 @@
 //! Instance → wire dict.
 //!
 //! Mirrors `seared._core.decorator._make_dump`: skip `dump=False` fields,
-//! skip `None` values, read attributes with a missing-slot tolerance, and
-//! coerce through the same per-kind serialisers. A failure gains the
+//! write a `None` only on a nullable field and skip it everywhere else, read
+//! attributes with a missing-slot tolerance, and coerce through the same
+//! per-kind serialisers. A failure gains the
 //! attribute name and the class as it passes back up: a `dump` path names
 //! attributes, since its input is the object.
 
@@ -27,15 +28,20 @@ pub(crate) fn dump(
             continue;
         }
         let v = match obj.getattr(f.attr.bind(py)) {
-            Ok(v) => v,
+            Ok(v) => Some(v),
             // seared reads with `getattr(obj, attr, None)`: an unset slot
-            // dumps as absent, same as None.
-            Err(e) if e.is_instance_of::<PyAttributeError>(py) => continue,
+            // counts as `None`.
+            Err(e) if e.is_instance_of::<PyAttributeError>(py) => None,
             Err(e) => return Err(e),
         };
-        if v.is_none() {
+        let Some(v) = v.filter(|v| !v.is_none()) else {
+            // `null` only where it's a value; anywhere else `None` is left
+            // out, which a `load` reads back the same way.
+            if f.nullable {
+                out.set_item(f.wire.bind(py), py.None())?;
+            }
             continue;
-        }
+        };
         let attr = f.attr.bind(py);
         let x = ser_field(schema, py, f, &v, format)
             .map_err(|e| relocate(py, e, err, Some(attr.as_any()), Some(&schema.name)))?;

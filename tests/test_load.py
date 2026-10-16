@@ -8,10 +8,13 @@ import operator
 import pytest
 import seared as s
 from conftest import (
+    NULL_BASE,
+    NULL_COLUMNS,
     bench_schema,
     lax_tier1_schema,
     load_outcome,
     nested_bytes_schema,
+    null_schema,
     one_field,
     outcome,
     path_schema,
@@ -56,10 +59,11 @@ class TestKeyResolution:
         payload = {**PAYLOAD, 'surprise': 1}
         assert fast.dump(fast.load(payload)) == slow.dump(slow.load(payload))
 
-    def test_explicit_null_beats_default(self, pair):
+    def test_a_null_on_a_defaulted_field_reads_as_absent(self, pair):
+        # ``SPEC_ABI`` 2: the default, ``False``, where ABI 1 loaded ``None``.
         fast, slow = pair
         payload = {**PAYLOAD, 'flag': None}
-        assert fast.load(payload).flag is slow.load(payload).flag is None
+        assert fast.load(payload).flag is slow.load(payload).flag is False
 
 
 class TestShape:
@@ -267,3 +271,72 @@ class TestErrorPaths:
         with pytest.raises(s.ValidationError) as info:
             fast.load(['x'])
         assert (str(info.value), info.value.path) == ('Root: expected dict, got list', ())
+
+
+#: What ``load`` gives for each wire state: seared's null table (``SPEC_ABI`` 2).
+NULL_TABLE = {
+    #          absent                   null                     value
+    'req': ('required key missing', 'required key missing', 7),
+    'dflt': (5, 5, 7),
+    'bare': (None, None, 7),
+    'n_dflt': (5, None, 7),
+    'n_req': ('required key missing', None, 7),
+}
+
+_ABSENT = object()
+
+
+def _loaded(cls, column, wire):
+    """``column``'s load outcome with ``wire`` as its value (or key absent).
+
+    A nested instance is compared through its dump: the two paths' ``Leaf``
+    classes are distinct, so their instances are never equal.
+    """
+    payload = {k: v for k, v in NULL_BASE.items() if k != column}
+    if wire is not _ABSENT:
+        payload[column] = wire
+    got = load_outcome(cls, payload, attr=column)
+    if got[0] == 'ok' and isinstance(got[1], s.Seared):
+        return ('ok', type(got[1]).dump(got[1]), got[2])
+    return got
+
+
+@pytest.mark.parametrize('validate', [True, False], ids=['strict', 'lax'])
+class TestNullRule:
+    """Pin: a ``null`` is a value only on a nullable field; anywhere else it reads as an absent key."""
+
+    @pytest.mark.parametrize('column', list(NULL_COLUMNS))
+    def test_every_wire_state_matches(self, validate, column):
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        for wire in (_ABSENT, None, NULL_COLUMNS[column]):
+            assert _loaded(fast, column, wire) == _loaded(slow, column, wire), (column, wire)
+
+    @pytest.mark.parametrize('column', list(NULL_TABLE))
+    def test_the_null_table(self, validate, column):
+        fast = null_schema(validate=validate, accel=True)
+        for wire, want in zip((_ABSENT, None, 7), NULL_TABLE[column], strict=True):
+            got = _loaded(fast, column, wire)
+            assert (got[3] if got[0] == 'raised' else got[1]) == want, (column, wire)
+
+    def test_a_nullable_container_or_class_can_be_null(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        got = fast.load({**NULL_BASE, 'n_many': None, 'n_keyed': None, 'n_leaf': None})
+        assert (got.n_many, got.n_keyed, got.n_leaf) == (None, None, None)
+
+    def test_a_null_takes_the_default_factory(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        assert fast.load({**NULL_BASE, 'factory': None}).factory == []
+
+    def test_a_null_on_a_required_field_names_its_wire_key(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        with pytest.raises(s.ValidationError) as info:
+            fast.load({**NULL_BASE, 'req': None})
+        assert (str(info.value), info.value.path) == ('Row.req: required key missing', ('req',))
+
+    def test_a_null_element_still_goes_through_the_field(self, validate):
+        # ``nullable`` is about the field's own value, not its elements.
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        payload = {**NULL_BASE, 'n_many': [1, None]}
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert got == want
+        assert got[4] == ('n_many', 1)

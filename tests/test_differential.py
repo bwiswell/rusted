@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import seared as s
-from conftest import Color, bench_schema, checked, lax_tier1_schema, one_field, outcome, raw, same
+from conftest import Color, bench_schema, checked, lax_tier1_schema, null_schema, one_field, outcome, raw, same
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
@@ -236,6 +236,31 @@ class TestMixedClassParity:
 # ---------------------------------------------------------------------------
 
 LAX_BOOL_REASON = 'Bool under validate=False is not accelerated until SPEC_ABI 2'
+
+
+#: (label, attributes) — instances with ``None`` in different places.
+NULL_OBJECTS = [
+    ('only-required', {'req': 1, 'n_req': None}),
+    ('every-nullable-none', {'req': 1, 'n_req': None, 'n_dflt': None, 'n_many': None, 'n_keyed': None, 'n_leaf': None}),
+    ('non-nullable-none', {'req': 1, 'n_req': 2, 'dflt': None, 'bare': None, 'leaf': None}),
+    ('values', {'req': 1, 'n_req': 2, 'n_dflt': 3, 'n_many': [4], 'n_keyed': {'k': 5}, 'factory': [6]}),
+]
+
+
+@pytest.mark.parametrize('validate', [True, False], ids=['strict', 'lax'])
+class TestNullRoundTrip:
+    """Pin: ``load(dump(x))`` agrees with seared on every arrangement of ``None``s.
+
+    A nullable ``None`` comes back as ``None``; one on any other field comes
+    back as the field's default, since ``dump`` left it out.
+    """
+
+    @pytest.mark.parametrize(('label', 'attrs'), NULL_OBJECTS, ids=[o[0] for o in NULL_OBJECTS])
+    def test_round_trip(self, validate, label, attrs):
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        fast_wire, slow_wire = fast.dump(fast(**attrs)), slow.dump(slow(**attrs))
+        assert fast_wire == slow_wire, label
+        assert fast.dump(fast.load(fast_wire)) == slow.dump(slow.load(slow_wire)), label
 
 
 def seam_schema(*, accel: bool, payload_key: str | None):
