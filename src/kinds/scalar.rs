@@ -5,7 +5,8 @@
 //! not: seared's `deserialize` raises on genuinely un-coercible input in
 //! *both* modes, and only the type *guards* are strict-only.
 
-use pyo3::exceptions::{PyTypeError, PyValueError};
+use pyo3::exceptions::{PyOverflowError, PyValueError};
+use pyo3::intern;
 use pyo3::prelude::*;
 use pyo3::type_object::PyTypeInfo;
 use pyo3::types::{PyBool, PyFloat, PyInt, PyString, PyType};
@@ -31,21 +32,52 @@ pub(crate) fn de_int(
     if v.is_instance_of::<PyInt>() {
         return Ok(v.clone().unbind());
     }
-    if v.is_instance_of::<PyString>() || v.is_instance_of::<PyFloat>() {
-        // seared: int(value), with TypeError/ValueError folded into a
-        // ValidationError. Anything else (OverflowError, a user __int__)
-        // propagates untouched.
-        return match PyInt::type_object(py).call1((v,)) {
-            Ok(x) => Ok(x.unbind()),
-            Err(e)
-                if e.is_instance_of::<PyTypeError>(py) || e.is_instance_of::<PyValueError>(py) =>
-            {
-                Err(verr(err, format!("cannot deserialize {} as int", repr(v))))
-            }
-            Err(e) => Err(e),
-        };
+    match coerce_int(py, v, validate)? {
+        Some(x) => Ok(x),
+        None => Err(verr(err, format!("cannot deserialize {} as int", repr(v)))),
     }
-    Err(verr(err, format!("cannot deserialize {} as int", repr(v))))
+}
+
+/// A float or numeric string as an `int` under seared's `Int` rules, or
+/// `None` if they refuse it (seared's `coerce_int`).
+///
+/// Strict mode refuses a float with a fractional part, where truncating would
+/// lose data; lax mode truncates. Numeric strings are accepted in both, since
+/// string-only sources decode through here. `nan` and `inf` are refused in
+/// both: `int()`'s `ValueError` and `OverflowError` both mean "refused". Any
+/// other type is refused too. Shared with an int-valued enum, which takes the
+/// values an `Int` would.
+pub(crate) fn coerce_int(
+    py: Python<'_>,
+    v: &Bound<'_, PyAny>,
+    validate: bool,
+) -> PyResult<Option<Py<PyAny>>> {
+    if v.is_instance_of::<PyFloat>() {
+        if validate && !is_integral(py, v)? {
+            return Ok(None);
+        }
+    } else if !v.is_instance_of::<PyString>() {
+        return Ok(None);
+    }
+    match PyInt::type_object(py).call1((v,)) {
+        Ok(x) => Ok(Some(x.unbind())),
+        Err(e)
+            if e.is_instance_of::<PyValueError>(py) || e.is_instance_of::<PyOverflowError>(py) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// `float.is_integer()`. Computed for an exact `float`; a subclass is asked,
+/// in case it overrides the method, as seared's call would.
+fn is_integral(py: Python<'_>, v: &Bound<'_, PyAny>) -> PyResult<bool> {
+    if v.is_exact_instance_of::<PyFloat>() {
+        let x: f64 = v.extract()?;
+        return Ok(x.is_finite() && x.fract() == 0.0);
+    }
+    v.call_method0(intern!(py, "is_integer"))?.is_truthy()
 }
 
 pub(crate) fn ser_int(
@@ -170,9 +202,9 @@ pub(crate) fn de_bool(
     if v.is_instance_of::<PyBool>() {
         return Ok(v.clone().unbind());
     }
-    if !validate {
-        return ctor::<PyBool>(py, v);
-    }
+    // The spelling table, in both modes: from `SPEC_ABI` 2 lax mode reads it
+    // too, so `'false'` is `False` there as well (ABI 1 went straight to
+    // truthiness, and loaded it as `True`).
     if v.is_instance_of::<PyString>() {
         // Python's own strip()/lower() rather than Rust's — the Unicode
         // definitions differ at the edges, and parity beats a few nanoseconds
@@ -185,7 +217,12 @@ pub(crate) fn de_bool(
             return Ok(PyBool::new(py, false).to_owned().into_any().unbind());
         }
     }
-    if v.is_instance_of::<PyInt>() {
+    if !validate {
+        return ctor::<PyBool>(py, v);
+    }
+    // Strict takes the ints `0` and `1` only, as its table takes `'0'` and
+    // `'1'` but not `'2'`. Python's `==`, as seared's `value in (0, 1)` is.
+    if v.is_instance_of::<PyInt>() && (v.eq(0)? || v.eq(1)?) {
         return ctor::<PyBool>(py, v);
     }
     Err(verr(err, format!("cannot deserialize {} as bool", repr(v))))

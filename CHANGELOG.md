@@ -24,6 +24,10 @@ lines as it lands, and the entry is dated when that version is released.
 - **Differential cases for the null rule:** seared's whole null table, with `nullable` on and off, in both modes;
   nullable `many`, `keyed` and `T` fields; a `null` element; a `default_factory`; what `dump` writes, an unset slot
   included; and `load(dump(x))` over every arrangement of `None`s.
+- **Differential cases for coercion:** `int` with integral, fractional and infinite floats, `nan` and numeric
+  strings, a float subclass that overrides `is_integer`, `bool` with every small int, and an int-valued enum with
+  floats, bools, `inf` and a `Decimal`, in both modes. Lax `bool` rejoins every sweep, and the lax differential
+  cases run over the whole bench schema again, its `Bool` included.
 
 ### Changed
 
@@ -41,9 +45,26 @@ lines as it lands, and the entry is dated when that version is released.
   way. A field the spec marks `nullable` keeps a `null` as `None`, even over a default, and `dump` writes its
   `None`; every other `None` is still left out. An unset slot on a nullable field dumps as `None` too, since seared
   reads it as one. A `null` element inside `many` or `keyed` still goes through the field.
+- **Strict coercion no longer loses data,** as in seared 0.4.0. The messages are unchanged; which inputs are refused
+  changes.
+  - Strict `int` refuses a float with a fractional part (`3.7`), which it used to truncate. Integral floats and
+    numeric strings still load, and lax mode still truncates. The float and string path is shared with
+    int-valued enums, as seared shares it.
+  - Strict `bool` takes only the ints `0` and `1`; `2` used to load as `True`.
+  - A strict int-valued enum follows strict `int`: `True` and `2.9` are refused, where they found the members for
+    `1` and `2`. Anything but a bool, an int, a float or a string is refused in both modes, so `Decimal('1')` no
+    longer finds its member either.
+- **Lax `bool` reads the spelling table before truthiness,** so `'false'`, `'0'`, `'no'` and `'off'` load as
+  `False`, as seared has since 0.3.3. Lax classes with a `Bool`, which seared kept off this core until `SPEC_ABI` 2,
+  accelerate again.
 - **Supported seared:** `>=0.4,<0.5`, from `>=0.3.4,<0.4`. The floor is the first seared to emit `SPEC_ABI` 2.
 - **Dependencies:** seared, the test-only dependency, follows seared's `version/0.4.0` branch (`>=0.4,<0.5`), with
   the lockfile pinning a commit, until seared 0.4.0 is tagged.
+
+### Fixed
+
+- **`inf` into an `int`, or an int-valued enum, raises `ValidationError`** in both modes. It let `int()`'s
+  `OverflowError` through, which `except s.ValidationError` didn't catch.
 
 ## 0.3.2 — 2026-10-16
 

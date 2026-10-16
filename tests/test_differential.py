@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import seared as s
-from conftest import Color, bench_schema, checked, lax_tier1_schema, null_schema, one_field, outcome, raw, same
+from conftest import Color, bench_schema, checked, load_outcome, null_schema, one_field, outcome, raw, same
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
@@ -70,11 +70,7 @@ IDS = list(CASES)
 
 @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
 def schemas(request):
-    if request.param:
-        return bench_schema(accel=True), bench_schema(accel=False)
-    # Lax `Bool` waits for SPEC_ABI 2 (see `LAX_TIER1`); this goes back to
-    # `bench_schema(validate=False)` with it.
-    return lax_tier1_schema(accel=True), lax_tier1_schema(accel=False)
+    return bench_schema(validate=request.param, accel=True), bench_schema(validate=request.param, accel=False)
 
 
 @pytest.mark.parametrize('case', IDS)
@@ -232,10 +228,8 @@ class TestMixedClassParity:
 
 
 # ---------------------------------------------------------------------------
-# Lax `Bool` keeps the Python path until SPEC_ABI 2
+# The null rule, through a round trip (SPEC_ABI 2)
 # ---------------------------------------------------------------------------
-
-LAX_BOOL_REASON = 'Bool under validate=False is not accelerated until SPEC_ABI 2'
 
 
 #: (label, attributes) — instances with ``None`` in different places.
@@ -261,6 +255,11 @@ class TestNullRoundTrip:
         fast_wire, slow_wire = fast.dump(fast(**attrs)), slow.dump(slow(**attrs))
         assert fast_wire == slow_wire, label
         assert fast.dump(fast.load(fast_wire)) == slow.dump(slow.load(slow_wire)), label
+
+
+# ---------------------------------------------------------------------------
+# Errors crossing back over the seam (SPEC_ABI 2)
+# ---------------------------------------------------------------------------
 
 
 def seam_schema(*, accel: bool, payload_key: str | None):
@@ -319,28 +318,33 @@ class TestAcrossTheSeam:
         assert outcomes[0][3:] == ('expected int, got str', ('action', 'speed'), 'Command')
 
 
-class TestLaxBoolAwaitsAbi2:
-    """seared 0.3.3's decline, seen from this side of the seam.
+# ---------------------------------------------------------------------------
+# Lax `Bool`: the spelling table, then truthiness (SPEC_ABI 2)
+# ---------------------------------------------------------------------------
 
-    seared fixed lax ``Bool`` in Python (``'false'`` used to load as ``True``),
-    and this core still implements the ABI 1 answer, so seared declines any
-    lax class with a ``Bool`` rather than let the answer depend on which wheel
-    is installed. These are tripwires: when ``SPEC_ABI`` 2 lifts the decline
-    they fail, and the lax ``Bool`` work is due (``de_bool``, ``LAX_TIER1``).
+
+class TestLaxBool:
+    """Lax ``Bool`` accelerates, with seared's answer: the spelling table, then truthiness.
+
+    seared 0.3.3 fixed it in Python (``'false'`` used to load as ``True``) and
+    declined lax classes with a ``Bool`` until a backend carried the fix.
+    ``SPEC_ABI`` 2 does, so they accelerate again.
     """
 
-    def test_a_lax_class_with_a_bool_declines(self):
-        @s.seared(validate=False)
-        class Lax(s.Seared):
-            on: bool = s.Bool(required=True)
+    @pytest.mark.parametrize('value', ['false', ' OFF ', 'no', '0', 'true', 'maybe', '', 2, 0, [], None])
+    def test_a_lax_class_with_a_bool_accelerates_and_matches(self, value):
+        def build(*, accel):
+            @s.seared(validate=False, accel=accel)
+            class Lax(s.Seared):
+                on: bool = s.Bool(required=True)
 
-        info = Lax.__seared_accel__
-        assert info.accelerated is False
-        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
-        # seared's own path gives the fixed answer.
-        assert Lax.load({'on': 'false'}).on is False
+            return checked(Lax, accel=accel)
 
-    def test_a_strict_parent_nesting_one_declines(self):
+        fast, slow = build(accel=True), build(accel=False)
+        assert load_outcome(fast, {'on': value}, attr='on') == load_outcome(slow, {'on': value}, attr='on')
+        assert fast.load({'on': 'false'}).on is False
+
+    def test_a_strict_parent_nesting_one_accelerates(self):
         @s.seared(validate=False)
         class Lax(s.Seared):
             on: bool = s.Bool(required=True)
@@ -349,13 +353,9 @@ class TestLaxBoolAwaitsAbi2:
         class Parent(s.Seared):
             inner: Lax = s.T(Lax, required=True)
 
-        info = Parent.__seared_accel__
-        assert info.accelerated is False
-        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
+        checked(Parent, accel=True)
+        assert Parent.load({'inner': {'on': 'off'}}).inner.on is False
 
     def test_strict_bool_still_accelerates(self):
         checked(one_field('bool'), accel=True)
         checked(bench_schema(), accel=True)
-
-    def test_lax_without_a_bool_still_accelerates(self):
-        checked(lax_tier1_schema(), accel=True)

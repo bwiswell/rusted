@@ -108,7 +108,7 @@ fn de_one(
             cls,
             name,
             int_valued,
-        } => value::de_enum(py, v, err, cls.bind(py), name, *int_valued),
+        } => value::de_enum(py, v, validate, err, cls.bind(py), name, *int_valued),
         Kind::Path { concrete } => value::de_path(py, v, validate, err, concrete.bind(py)),
         Kind::Dict => value::copy_dict(py, v, validate, err),
         Kind::Nested(sub) => {

@@ -11,9 +11,9 @@
 use pyo3::exceptions::{PyTypeError, PyValueError};
 use pyo3::prelude::*;
 use pyo3::type_object::PyTypeInfo;
-use pyo3::types::{PyByteArray, PyBytes, PyDict, PyInt, PyString, PyType};
+use pyo3::types::{PyBool, PyByteArray, PyBytes, PyDict, PyInt, PyString, PyType};
 
-use super::{ctor, repr, type_name, verr};
+use super::{ctor, repr, scalar, type_name, verr};
 use crate::imports::stdlib;
 
 // ---------------------------------------------------------------------------
@@ -207,6 +207,7 @@ pub(crate) fn ser_enum(
 pub(crate) fn de_enum(
     py: Python<'_>,
     v: &Bound<'_, PyAny>,
+    validate: bool,
     err: &Bound<'_, PyType>,
     cls: &Bound<'_, PyType>,
     name: &str,
@@ -215,19 +216,35 @@ pub(crate) fn de_enum(
     if v.is_instance(cls.as_any())? {
         return Ok(v.clone().unbind());
     }
+    let refused = || verr(err, format!("{} is not a valid {name}", repr(v)));
     // Whether members are int-valued is decided once, at compile time; seared
-    // re-derives it from `next(iter(enum))` on every call.
-    let looked_up = if int_valued {
-        PyInt::type_object(py)
-            .call1((v,))
-            .and_then(|as_int| cls.call1((as_int,)))
+    // re-derives it from `next(iter(enum))` on every call. An int-valued enum
+    // takes the values an `Int` would, by the same mode's rules (seared's
+    // `_int_key`): strict refuses `True` and `2.9`, which lax reads as `1`
+    // and `2`, and anything but a bool, an int, a float or a string.
+    let key = if int_valued {
+        let key = if v.is_instance_of::<PyBool>() {
+            if validate {
+                None
+            } else {
+                Some(ctor::<PyInt>(py, v)?)
+            }
+        } else if v.is_instance_of::<PyInt>() {
+            Some(v.clone().unbind())
+        } else {
+            scalar::coerce_int(py, v, validate)?
+        };
+        match key {
+            Some(k) => k.into_bound(py),
+            None => return Err(refused()),
+        }
     } else {
-        cls.call1((v,))
+        v.clone()
     };
-    match looked_up {
+    match cls.call1((key,)) {
         Ok(x) => Ok(x.unbind()),
         Err(e) if e.is_instance_of::<PyValueError>(py) || e.is_instance_of::<PyTypeError>(py) => {
-            Err(verr(err, format!("{} is not a valid {name}", repr(v))))
+            Err(refused())
         }
         Err(e) => Err(e),
     }
