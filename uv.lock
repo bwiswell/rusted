@@ -179,7 +179,7 @@ wheels = [
 
 [[package]]
 name = "rusted"
-version = "0.3.1"
+version = "0.3.2"
 source = { editable = "." }
 
 [package.dev-dependencies]
@@ -202,14 +202,14 @@ dev = [
     { name = "prek" },
     { name = "pytest", specifier = ">=8.0,<9.0" },
     { name = "ruff" },
-    { name = "seared", git = "https://github.com/bwiswell/seared" },
+    { name = "seared", git = "https://github.com/bwiswell/seared?tag=v0.3.4" },
     { name = "ty" },
 ]
 
 [[package]]
 name = "seared"
-version = "0.3.3"
-source = { git = "https://github.com/bwiswell/seared#10c59f5e55a9e1ae66aa87c4e68e7bc43a26261c" }
+version = "0.3.4"
+source = { git = "https://github.com/bwiswell/seared?tag=v0.3.4#886be3809e6ef6f7fbfc1b0c093116449afaf504" }
 
 [[package]]
 name = "tomli"
