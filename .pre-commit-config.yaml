@@ -1,7 +1,9 @@
 # House hooks run via `prek` (`uv run prek install` once per clone).
 # Python side mirrors seared's chain (lint, format, dep hygiene, ty); the Rust
 # side adds fmt + clippy. Deliberately no build and no test run — compiling and
-# the differential suite are CI's job, not a commit hook's.
+# the differential suite are CI's job, not a commit hook's. `no-commit-to-branch`
+# refuses a commit on `master`, which moves only by merging a `version/` branch
+# (see README Development); it is prek's built-in copy, so nothing is fetched.
 repos:
   - repo: local
     hooks:
@@ -38,3 +40,6 @@ repos:
         language: system
         pass_filenames: false
         types: [rust]
+  - repo: builtin
+    hooks:
+      - id: no-commit-to-branch  # master moves only by merge

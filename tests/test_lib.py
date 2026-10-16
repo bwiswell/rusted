@@ -2,10 +2,16 @@
 
 from __future__ import annotations
 
+import re
+import tomllib
+from pathlib import Path
+
 import pytest
 import rusted
 import seared as s
 from seared._core import accel
+
+_ROOT = Path(__file__).parent.parent
 
 
 class TestModuleSurface:
@@ -30,6 +36,17 @@ class TestModuleSurface:
             '__version__',
             'compile_spec',
         }
+
+    def test_the_version_is_stamped_the_same_in_all_three_places(self):
+        # The release workflow tags from these and refuses to run if they
+        # differ; failing here catches it before the merge. Read from the
+        # tree, not the installed module, which can be an older build.
+        project = tomllib.loads((_ROOT / 'pyproject.toml').read_text())['project']['version']
+        crate = tomllib.loads((_ROOT / 'Cargo.toml').read_text())['package']['version']
+        init = (_ROOT / 'python' / 'rusted' / '__init__.py').read_text()
+        stamped = re.search(r"^__version__ = '(.*)'$", init, re.MULTILINE)
+        assert stamped is not None
+        assert project == crate == stamped[1]
 
 
 class TestCompileSpec:

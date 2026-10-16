@@ -6,11 +6,23 @@
 exactly as it always has. No code changes either way.
 
 ```sh
-uv add git+https://www.github.com/bwiswell/rusted.git
+uv add git+https://github.com/bwiswell/rusted --tag v0.3.2
 ```
 
 That is the entire user-facing API. There is nothing to import and nothing to
 call — seared finds it.
+
+Each release is tagged `v<version>` on GitHub (the first is `v0.3.2`), and
+`uv add` records the tag as the dependency's source:
+
+```toml
+[tool.uv.sources]
+rusted = { git = "https://github.com/bwiswell/rusted", tag = "v0.3.2" }
+```
+
+**The tag is the pin.** uv doesn't check a version specifier against a git
+source: it takes whatever the source points at, and a source without a tag
+points at the tip of `master`. Moving to a new release means moving the tag.
 
 **A git install builds from source and needs a Rust toolchain** (`rustup`,
 1.85+). That is the current state, not the intent: the point of an accelerator
@@ -125,6 +137,8 @@ uv run pytest                # the suite, including the differential tests
 uv run prek install          # ruff + ty + deptry + cargo fmt/clippy on commit
 ```
 
+The hooks also refuse any commit on `master`.
+
 After editing Rust, rebuild with `uv sync --reinstall-package rusted` (or
 `uv run maturin develop --release`). Release profile matters: `BUILD_PROFILE`
 is asserted in the tests, because debug-build numbers are noise.
@@ -145,6 +159,19 @@ If that diverges from a plain run, the accelerator is wrong, not seared.
 Tests mirror the source layout exactly — one `test_*.py` per Rust source
 file (`tests/kinds/test_scalar.py` for `src/kinds/scalar.rs`, and so on),
 plus `test_differential.py` for the contract as a whole.
+
+**Branches and releases.**
+- **`master` holds released commits only,** and moves only by merge.
+- **A release is a `version/x.y.z` branch** off `master`.
+- **Work on it happens in `feat/…` and `fix/…` branches,** each a pull
+  request squash-merged into the version branch.
+- **Once those are all in, one `chore: version bump` commit** on the version
+  branch bumps the version in `Cargo.toml`, `pyproject.toml` and
+  `python/rusted/__init__.py` together (a test checks that the three agree),
+  and refreshes both lockfiles.
+- **The version branch then merges into `master`.** There, the `Release Tag`
+  workflow (`.github/workflows/release-tag.yml`) tags it `v<version>` and
+  publishes a GitHub release.
 
 ## Roadmap
 
