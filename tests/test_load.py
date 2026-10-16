@@ -2,9 +2,20 @@
 
 from __future__ import annotations
 
+import functools
+import operator
+
 import pytest
 import seared as s
-from conftest import bench_schema, lax_tier1_schema, load_outcome, nested_bytes_schema, one_field, outcome
+from conftest import (
+    bench_schema,
+    lax_tier1_schema,
+    load_outcome,
+    nested_bytes_schema,
+    one_field,
+    outcome,
+    path_schema,
+)
 
 PAYLOAD = {
     'name': 'demo',
@@ -179,3 +190,80 @@ class TestLaxMode:
         slow = lax_tier1_schema(accel=False)
         assert load_outcome(fast, payload, attr='name') == load_outcome(slow, payload, attr='name')
         assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
+
+
+#: (label, payload) — each fails somewhere specific, for :class:`TestErrorPaths`.
+PATH_CASES = [
+    ('leaf-in-a-list', {'items': [{'n': 1}, {'n': 'x'}]}),
+    ('list-in-a-leaf', {'items': [{'n': 1, 'tags': ['a', 7]}]}),
+    ('keyed-str-key', {'items': [], 'readers': {'r-1': {'p': 'bad'}}}),
+    ('keyed-int-key', {'items': [], 'counts': {1: 'x'}}),
+    ('keyed-digit-str-key', {'items': [], 'counts': {'1': 'x'}}),
+    ('three-deep', {'items': [], 'mid': {'leaves': [{'n': 1}, {'n': 2, 'tags': [None]}]}}),
+    ('missing-at-the-top', {}),
+    ('missing-three-deep', {'items': [], 'mid': {'leaves': [{}]}}),
+    ('missing-by-its-data-key', {'items': [], 'readers': {'a': {'port': 1}}}),
+    ('non-dict-at-the-top', ['x']),
+    ('non-dict-nested', {'items': [7]}),
+    ('many-not-a-list', {'items': 'nope'}),
+    ('keyed-not-a-dict', {'items': [], 'readers': [1]}),
+]
+
+#: The cases whose path ends at a value that is there to retrieve.
+RETRIEVABLE = [
+    'leaf-in-a-list',
+    'list-in-a-leaf',
+    'keyed-str-key',
+    'keyed-int-key',
+    'keyed-digit-str-key',
+    'three-deep',
+]
+
+
+class TestErrorPaths:
+    """Pin the ``SPEC_ABI`` 2 error contract on ``load``: the same reason, path and class as seared.
+
+    The path holds wire keys, list indices and keyed-dict keys (the key
+    object itself), and ``cls_name`` is the outermost class.
+    """
+
+    @pytest.fixture(scope='class')
+    def roots(self):
+        return path_schema(accel=True), path_schema(accel=False)
+
+    @pytest.mark.parametrize(('label', 'payload'), PATH_CASES, ids=[c[0] for c in PATH_CASES])
+    def test_parts_match(self, roots, label, payload):
+        fast, slow = roots
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert want[:2] == ('raised', 'ValidationError'), label
+        assert got == want
+
+    @pytest.mark.parametrize(('label', 'payload'), [c for c in PATH_CASES if c[0] in RETRIEVABLE], ids=RETRIEVABLE)
+    def test_the_path_retrieves_the_offending_value(self, roots, label, payload):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load(payload)
+        assert info.value.cls_name == 'Root'
+        offending = functools.reduce(operator.getitem, info.value.path, payload)
+        assert offending in ('x', 7, 'bad', None)
+
+    def test_an_int_key_and_a_str_key_are_different_paths(self, roots):
+        fast, _ = roots
+        paths = []
+        for key in (1, '1'):
+            with pytest.raises(s.ValidationError) as info:
+                fast.load({'items': [], 'counts': {key: 'x'}})
+            paths.append(info.value.path)
+        assert paths == [('counts', 1), ('counts', '1')]
+
+    def test_a_missing_required_key_ends_the_path_at_its_wire_key(self, roots):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load({'items': [], 'readers': {'a': {'port': 1}}})
+        assert str(info.value) == 'Root.readers.a.p: required key missing'
+
+    def test_a_non_dict_names_the_class_alone(self, roots):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load(['x'])
+        assert (str(info.value), info.value.path) == ('Root: expected dict, got list', ())

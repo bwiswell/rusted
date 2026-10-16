@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 import seared as s
-from conftest import bench_schema, nested_bytes_schema, one_field, outcome, raw
+from conftest import bench_schema, nested_bytes_schema, one_field, outcome, path_schema, raw
 
 PAYLOAD = {
     'name': 'demo',
@@ -91,3 +91,46 @@ class TestContainers:
         fast = one_field('int', accel=True, keyed=True)
         slow = one_field('int', accel=False, keyed=True)
         assert outcome(fast.dump, raw(fast, v=value)) == outcome(slow.dump, raw(slow, v=value))
+
+
+def _nested(root):
+    """``root``'s nested classes by name, read off its fields."""
+    classes = {}
+    for spec in root.__seared_fields__:
+        schema = getattr(spec.field, 'schema', None)
+        if schema is not None:
+            classes[schema.__name__] = schema
+            classes.update(_nested(schema))
+    return classes
+
+
+def _bad_objects(root):
+    """(label, instance) — each fails to dump somewhere specific."""
+    c = _nested(root)
+    leaf, port, mid = c['Leaf'], c['Port'], c['Mid']
+    return [
+        ('leaf-in-a-list', raw(root, items=[leaf(n=1), raw(leaf, n='x', tags=[])])),
+        ('keyed-key', raw(root, items=[], readers={'r-1': raw(port, port='bad')})),
+        ('not-a-leaf', raw(root, items=[7])),
+        ('many-not-a-list', raw(root, items=7)),
+        ('three-deep', raw(root, items=[], mid=raw(mid, leaves=[leaf(n=1), raw(leaf, n=2, tags=[None])]))),
+    ]
+
+
+class TestErrorPaths:
+    """Pin the ``SPEC_ABI`` 2 error contract on ``dump``: attribute names, not wire keys."""
+
+    @pytest.mark.parametrize('label', ['leaf-in-a-list', 'keyed-key', 'not-a-leaf', 'many-not-a-list', 'three-deep'])
+    def test_parts_match(self, label):
+        fast, slow = path_schema(accel=True), path_schema(accel=False)
+        got = outcome(fast.dump, dict(_bad_objects(fast))[label])
+        want = outcome(slow.dump, dict(_bad_objects(slow))[label])
+        assert want[:2] == ('raised', 'ValidationError')
+        assert got == want
+
+    def test_a_dump_path_names_attributes(self):
+        fast = path_schema(accel=True)
+        with pytest.raises(s.ValidationError) as info:
+            fast.dump(dict(_bad_objects(fast))['keyed-key'])
+        # ``port`` is the attribute; ``p`` is its wire key, which a load path would name.
+        assert (info.value.path, info.value.cls_name) == (('readers', 'r-1', 'port'), 'Root')

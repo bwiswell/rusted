@@ -2,16 +2,17 @@
 //!
 //! Mirrors the closure `seared._core.decorator._make_load` builds: the same
 //! key-resolution order, the same required/default fallbacks, the same
-//! per-field coercion. The one deliberate difference is construction —
-//! `__new__` plus attribute assignment instead of `cls(**kwargs)`, which is
-//! sound only because the seam declines any class where that is observable
-//! (a hand-written `__init__`, or a `__post_init__`).
+//! per-field coercion, and the same error locations (a failure gains the wire
+//! key and the class as it passes back up through here). The one deliberate
+//! difference is construction — `__new__` plus attribute assignment instead
+//! of `cls(**kwargs)`, which is sound only because the seam declines any class
+//! where that is observable (a hand-written `__init__`, or a `__post_init__`).
 
 use pyo3::prelude::*;
-use pyo3::types::PyDict;
+use pyo3::types::{PyDict, PyTuple};
 
 use crate::kinds::temporal::{self, DateKind};
-use crate::kinds::{apply, scalar, type_name, value, verr};
+use crate::kinds::{apply, relocate, scalar, type_name, value, verr_at};
 use crate::spec::{FieldSpec, Kind, Schema};
 
 pub(crate) fn load(
@@ -22,25 +23,29 @@ pub(crate) fn load(
 ) -> PyResult<Py<PyAny>> {
     let err = schema.error.bind(py);
     let Ok(dict) = data.downcast::<PyDict>() else {
-        return Err(verr(
+        return Err(verr_at(
+            py,
             err,
-            format!(
-                "{}.load expected dict, got {}",
-                schema.name,
-                type_name(data)
-            ),
+            format!("expected dict, got {}", type_name(data)),
+            &PyTuple::empty(py),
+            &schema.name,
         ));
     };
 
     let inst = schema.new_fn.bind(py).call1((schema.cls.bind(py),))?;
     for f in &schema.fields {
-        let value: Py<PyAny> = match dict.get_item(f.wire.bind(py))? {
-            Some(v) => de_field(schema, py, f, &v, format)?,
+        let wire = f.wire.bind(py);
+        let value: Py<PyAny> = match dict.get_item(wire)? {
+            Some(v) => de_field(schema, py, f, &v, format)
+                .map_err(|e| relocate(py, e, err, Some(wire.as_any()), Some(&schema.name)))?,
             None => {
                 if f.required {
-                    return Err(verr(
+                    return Err(verr_at(
+                        py,
                         err,
-                        format!("{}.{} is required", schema.name, f.attr.bind(py)),
+                        "required key missing".to_string(),
+                        &PyTuple::new(py, [wire])?,
+                        &schema.name,
                     ));
                 } else if let Some(factory) = &f.default_factory {
                     factory.bind(py).call0()?.unbind()

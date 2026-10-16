@@ -20,7 +20,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 import seared as s
-from conftest import Color, bench_schema, checked, lax_tier1_schema, one_field, outcome, same
+from conftest import Color, bench_schema, checked, lax_tier1_schema, one_field, outcome, raw, same
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
@@ -236,6 +236,62 @@ class TestMixedClassParity:
 # ---------------------------------------------------------------------------
 
 LAX_BOOL_REASON = 'Bool under validate=False is not accelerated until SPEC_ABI 2'
+
+
+def seam_schema(*, accel: bool, payload_key: str | None):
+    """A ``Union`` parent holding a variant built on the asked-for path.
+
+    ``Union`` never accelerates, so the parent always runs seared's Python
+    path: an error from a compiled variant crosses back over the seam, where
+    seared adds the envelope's location to rusted's error as if it had raised
+    it.
+    """
+
+    @s.seared(accel=accel)
+    class Start(s.Seared):
+        speed: int = s.Int(required=True)
+        tags: list[str] = s.Str(many=True, default_factory=list)
+
+    checked(Start, accel=accel)
+
+    @s.seared
+    class Command(s.Seared):
+        action: object = s.Union(variants={'start': Start}, tag_key='kind', payload_key=payload_key)
+
+    assert Command.__seared_accel__.accelerated is False
+    return Command, Start
+
+
+#: (label, payload_key, payload).
+SEAM_CASES = [
+    ('nested-bad-value', 'args', {'kind': 'start', 'args': {'speed': 'x'}}),
+    ('nested-bad-item', 'args', {'kind': 'start', 'args': {'speed': 1, 'tags': ['a', 7]}}),
+    ('nested-missing', 'args', {'kind': 'start', 'args': {}}),
+    ('nested-not-a-dict', 'args', {'kind': 'start', 'args': [1]}),
+    ('flat-bad-value', None, {'kind': 'start', 'speed': 'x'}),
+    ('flat-missing', None, {'kind': 'start'}),
+]
+
+
+class TestAcrossTheSeam:
+    """Pin: a compiled variant's error, located again by seared's ``Union``, matches the Python path's."""
+
+    @pytest.mark.parametrize(('label', 'payload_key', 'payload'), SEAM_CASES, ids=[c[0] for c in SEAM_CASES])
+    def test_load(self, label, payload_key, payload):
+        fast, _ = seam_schema(accel=True, payload_key=payload_key)
+        slow, _ = seam_schema(accel=False, payload_key=payload_key)
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert want[:2] == ('raised', 'ValidationError'), label
+        assert got == want
+
+    @pytest.mark.parametrize('payload_key', ['args', None], ids=['nested', 'flat'])
+    def test_dump(self, payload_key):
+        outcomes = []
+        for accel in (True, False):
+            command, start = seam_schema(accel=accel, payload_key=payload_key)
+            outcomes.append(outcome(command.dump, command(action=raw(start, speed='x', tags=[]))))
+        assert outcomes[0] == outcomes[1]
+        assert outcomes[0][3:] == ('expected int, got str', ('action', 'speed'), 'Command')
 
 
 class TestLaxBoolAwaitsAbi2:

@@ -28,7 +28,12 @@ use spec::Schema;
 /// Spec shape this build understands; must equal `seared._core.accel.SPEC_ABI`.
 /// seared declines the backend outright on a mismatch — this integer is the
 /// whole compatibility gate.
-const SPEC_ABI: u32 = 1;
+///
+/// 2 since rusted 0.4.0, matching seared 0.4.0, which changed what several
+/// kinds mean as well as the spec: errors carry their location as parts, a
+/// `null` reads as absent unless the field is nullable, and strict coercion
+/// no longer loses data.
+const SPEC_ABI: u32 = 2;
 
 #[cfg(debug_assertions)]
 const BUILD_PROFILE: &str = "debug";
