@@ -23,6 +23,8 @@ rusted = { git = "https://github.com/bwiswell/rusted", tag = "v0.3.2" }
 **The tag is the pin.** uv doesn't check a version specifier against a git
 source: it takes whatever the source points at, and a source without a tag
 points at the tip of `master`. Moving to a new release means moving the tag.
+What changed in each release, and which seared it supports, is in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 **A git install builds from source and needs a Rust toolchain** (`rustup`,
 1.85+). That is the current state, not the intent: the point of an accelerator
@@ -164,11 +166,12 @@ plus `test_differential.py` for the contract as a whole.
 - **`master` holds released commits only,** and moves only by merge.
 - **A release is a `version/x.y.z` branch** off `master`.
 - **Work on it happens in `feat/…` and `fix/…` branches,** each a pull
-  request squash-merged into the version branch.
+  request squash-merged into the version branch. Each adds its own lines to
+  the `unreleased` entry at the top of `CHANGELOG.md`.
 - **Once those are all in, one `chore: version bump` commit** on the version
   branch bumps the version in `Cargo.toml`, `pyproject.toml` and
   `python/rusted/__init__.py` together (a test checks that the three agree),
-  and refreshes both lockfiles.
+  refreshes both lockfiles, and dates the changelog entry.
 - **The version branch then merges into `master`.** There, the `Release Tag`
   workflow (`.github/workflows/release-tag.yml`) tags it `v<version>` and
   publishes a GitHub release.
