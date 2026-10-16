@@ -2,8 +2,10 @@
 //!
 //! Mirrors the closure `seared._core.decorator._make_load` builds: the same
 //! key-resolution order, the same required/default fallbacks, the same
-//! per-field coercion, and the same error locations (a failure gains the wire
-//! key and the class as it passes back up through here). The one deliberate
+//! per-field coercion, the same null rule (a `null` is a value only on a
+//! nullable field, and reads as an absent key anywhere else), and the same
+//! error locations (a failure gains the wire key and the class as it passes
+//! back up through here). The one deliberate
 //! difference is construction — `__new__` plus attribute assignment instead
 //! of `cls(**kwargs)`, which is sound only because the seam declines any class
 //! where that is observable (a hand-written `__init__`, or a `__post_init__`).
@@ -36,9 +38,12 @@ pub(crate) fn load(
     for f in &schema.fields {
         let wire = f.wire.bind(py);
         let value: Py<PyAny> = match dict.get_item(wire)? {
-            Some(v) => de_field(schema, py, f, &v, format)
+            Some(v) if !v.is_none() => de_field(schema, py, f, &v, format)
                 .map_err(|e| relocate(py, e, err, Some(wire.as_any()), Some(&schema.name)))?,
-            None => {
+            Some(_) if f.nullable => py.None(),
+            // Absent, or a `null` on a field that isn't nullable, which reads
+            // the same: it can't satisfy `required` or displace a default.
+            _ => {
                 if f.required {
                     return Err(verr_at(
                         py,
@@ -51,7 +56,7 @@ pub(crate) fn load(
                     factory.bind(py).call0()?.unbind()
                 } else if let Some(d) = &f.default {
                     // Shared, not copied — seared's load path assigns the same
-                    // `missing` object too. Deep-copying is the *constructor*
+                    // `default` object too. Deep-copying is the *constructor*
                     // wrapper's job, not load's.
                     d.clone_ref(py)
                 } else {
@@ -71,9 +76,7 @@ fn de_field(
     v: &Bound<'_, PyAny>,
     format: &str,
 ) -> PyResult<Py<PyAny>> {
-    if v.is_none() {
-        return Ok(py.None());
-    }
+    // `v` is never `None`: `load` settles a `null` first.
     let err = schema.error.bind(py);
     apply(py, f, v, schema.validate, err, |x| {
         de_one(schema, py, f, x, format)

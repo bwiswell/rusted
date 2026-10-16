@@ -21,6 +21,9 @@ lines as it lands, and the entry is dated when that version is released.
   int key against a string one; a `data_key` named by its wire key on `load` and by its attribute on `dump`; and
   errors from a compiled variant crossing back through a `Union` parent, which always runs on the Python path, in
   both envelope shapes.
+- **Differential cases for the null rule:** seared's whole null table, with `nullable` on and off, in both modes;
+  nullable `many`, `keyed` and `T` fields; a `null` element; a `default_factory`; what `dump` writes, an unset slot
+  included; and `load(dump(x))` over every arrangement of `None`s.
 
 ### Changed
 
@@ -33,6 +36,11 @@ lines as it lands, and the entry is dated when that version is released.
   successful `load` or `dump` pays nothing for it. Two messages are reworded with seared's:
   - a required key reads `Outer.n: required key missing`, named by its wire key (was `Outer.n is required`);
   - a non-dict reads `Outer: expected dict, got list` (was `Outer.load expected dict, got list`).
+- **A `null` reads as absent unless the field is nullable,** as seared 0.4.0 has it. A `null` on a required field
+  raises `required key missing`, and on a defaulted one gives the default, where it used to load as `None` either
+  way. A field the spec marks `nullable` keeps a `null` as `None`, even over a default, and `dump` writes its
+  `None`; every other `None` is still left out. An unset slot on a nullable field dumps as `None` too, since seared
+  reads it as one. A `null` element inside `many` or `keyed` still goes through the field.
 - **Supported seared:** `>=0.4,<0.5`, from `>=0.3.4,<0.4`. The floor is the first seared to emit `SPEC_ABI` 2.
 - **Dependencies:** seared, the test-only dependency, follows seared's `version/0.4.0` branch (`>=0.4,<0.5`), with
   the lockfile pinning a commit, until seared 0.4.0 is tagged.

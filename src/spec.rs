@@ -58,11 +58,15 @@ pub(crate) struct FieldSpec {
     pub(crate) wire: Py<PyString>,
     pub(crate) kind: Kind,
     pub(crate) required: bool,
+    /// Whether `None` is a value: a wire `null` loads as `None` (even over a
+    /// default) and `dump` writes `None`. On any other field a `null` reads
+    /// as an absent key and `dump` leaves `None` out. `SPEC_ABI` 2.
+    pub(crate) nullable: bool,
     pub(crate) many: bool,
     pub(crate) keyed: bool,
     pub(crate) dump: bool,
-    /// The resolved default — seared has already folded `default=` into
-    /// `missing`. `None` means the default is Python `None`.
+    /// The field's `default`, held as declared. `None` means the default is
+    /// Python `None`.
     pub(crate) default: Option<Py<PyAny>>,
     pub(crate) default_factory: Option<Py<PyAny>>,
 }
@@ -219,6 +223,7 @@ fn parse_field(py: Python<'_>, f: &Bound<'_, PyDict>) -> PyResult<Option<FieldSp
         wire: PyString::intern(py, &wire).unbind(),
         kind,
         required: flag(f, "required")?,
+        nullable: flag(f, "nullable")?,
         many: flag(f, "many")?,
         keyed: flag(f, "keyed")?,
         dump: flag(f, "dump")?,
