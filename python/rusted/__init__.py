@@ -19,17 +19,15 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: Diagnostic only. seared gates on :data:`SPEC_ABI` and never parses this —
 #: it is zero-dependency and has no PEP 440 specifier parser to do it with.
 #:
-#: The floor is the seared release this build is tested against: the suite
-#: pins seared's ``v0.3.4`` tag. 0.3.3 spec-matches it (0.3.4 changed
-#: nothing the spec carries), but it isn't what's tested, so it sits below
-#: the floor. From 0.3.3, seared declines lax classes with a ``Bool``, whose
-#: ABI 1 answer this core still gives, so lax ``bool`` is untested here.
-#: Before 0.3.1 the two paths observably differ (``format=`` through nested
-#: ``T``, plain dataclass attributes). The ceiling is a guess about where the
-#: spec might next change, not a tested boundary. Because nothing enforces
-#: it, it is the one thing here that can silently go stale — check it
-#: whenever seared's minor version moves.
-SUPPORTS_SEARED = '>=0.3.4,<0.4'
+#: The floor is the seared release this build is tested against: 0.4.0, the
+#: first to emit ``SPEC_ABI`` 2, which this build implements (errors with
+#: their location as parts, ``null`` read as absent unless nullable, strict
+#: coercion that never loses data). seared 0.3.x emits 1 and declines this
+#: build outright, so nothing below the floor can use it. The ceiling is a
+#: guess about where the spec might next change, not a tested boundary.
+#: Because nothing enforces it, it is the one thing here that can silently go
+#: stale — check it whenever seared's minor version moves.
+SUPPORTS_SEARED = '>=0.4,<0.5'
 
 __version__ = '0.3.2'
 

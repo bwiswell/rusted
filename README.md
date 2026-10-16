@@ -122,7 +122,9 @@ plain-data spec.
 `rusted` owns the compiled interpreter and knows nothing about seared — it
 imports nothing from it, not even the exception class, which rides in the
 spec so that a caller's `except s.ValidationError` keeps catching errors
-raised from Rust. That is what keeps the family's dependency arrow pointing
+raised from Rust. From `SPEC_ABI` 2 they carry seared's parts too, the
+`.reason`, the `.path` into the input and the outermost `.cls_name`, so they
+read exactly as seared's own: `Outer.items[1].n: cannot deserialize 'x' as int`. That is what keeps the family's dependency arrow pointing
 one way, and it means `rusted` can only ever be a no-op: a missing wheel, an
 ABI mismatch, or a backend that raises all end in the Python path.
 

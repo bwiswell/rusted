@@ -3,20 +3,39 @@
 Each version of rusted, newest first.
 
 A **Supported seared** line means `SUPPORTS_SEARED`, the seared range a build declares, has moved. seared never
-enforces that range. The one check it makes is `SPEC_ABI`, which is 1 in every release so far, so seared will use
-any of these builds; outside a build's declared range, the two paths may differ.
+enforces that range. The one check it makes is `SPEC_ABI`, 1 through 0.3.2 and 2 from 0.4.0: seared uses a build
+only when the two match, and within that, outside a build's declared range, the two paths may differ.
 
 The top entry, while it reads *unreleased*, collects what has merged for the next version; each change adds its own
 lines as it lands, and the entry is dated when that version is released.
 
 ## 0.4.0 — unreleased
 
-**The changelog ships with the repository.**
+**`SPEC_ABI` 2, for seared 0.4.0, and the changelog in the repository.**
 
 ### Added
 
 - **`CHANGELOG.md`**, this file: every release from 0.1.0 on, newest first. It is kept in the repository and grows
   with each change as it merges, where it had been reconstructed after each release.
+- **Differential cases for where an error happened:** paths through `T`, `many` and `keyed`, nested three deep; an
+  int key against a string one; a `data_key` named by its wire key on `load` and by its attribute on `dump`; and
+  errors from a compiled variant crossing back through a `Union` parent, which always runs on the Python path, in
+  both envelope shapes.
+
+### Changed
+
+- **`SPEC_ABI` 2,** the spec seared 0.4.0 emits. seared 0.4.0 declines rusted 0.3.x and seared 0.3.x declines this
+  build, so the two releases go together.
+- **Errors say where they happened,** with seared 0.4.0's parts: `.reason`, `.path` and `.cls_name`, and so the
+  same message, `Outer.items[1].n: cannot deserialize 'x' as int`. On `load` the path holds wire keys, list
+  indices and keyed-dict keys (the key object itself); on `dump` it holds attribute names; `cls_name` is the
+  outermost class. Each level rebuilds the error through its class's constructor as it passes back up, so a
+  successful `load` or `dump` pays nothing for it. Two messages are reworded with seared's:
+  - a required key reads `Outer.n: required key missing`, named by its wire key (was `Outer.n is required`);
+  - a non-dict reads `Outer: expected dict, got list` (was `Outer.load expected dict, got list`).
+- **Supported seared:** `>=0.4,<0.5`, from `>=0.3.4,<0.4`. The floor is the first seared to emit `SPEC_ABI` 2.
+- **Dependencies:** seared, the test-only dependency, follows seared's `version/0.4.0` branch (`>=0.4,<0.5`), with
+  the lockfile pinning a commit, until seared 0.4.0 is tagged.
 
 ## 0.3.2 — 2026-10-16
 

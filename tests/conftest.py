@@ -296,12 +296,24 @@ def same(a, b):
     return a == b
 
 
+def failure(exc):
+    """``('raised', ExcType, message, …parts)`` — a failure, comparable.
+
+    A ``ValidationError`` also carries its parts (``SPEC_ABI`` 2). Comparing
+    the message alone would miss a path that renders the same but holds
+    different types: an index ``1`` against a keyed-dict key ``'1'``.
+    """
+    if isinstance(exc, s.ValidationError):
+        return ('raised', type(exc).__name__, str(exc), exc.reason, exc.path, exc.cls_name)
+    return ('raised', type(exc).__name__, str(exc))
+
+
 def outcome(fn, *args):
-    """``('ok', value)`` or ``('raised', ExcType, message)`` — comparable."""
+    """``('ok', value)``, or :func:`failure`'s tuple — comparable."""
     try:
         return ('ok', fn(*args))
     except Exception as exc:  # noqa: BLE001 — comparing failures is the point
-        return ('raised', type(exc).__name__, str(exc))
+        return failure(exc)
 
 
 def load_outcome(cls, payload, attr='v'):
@@ -309,9 +321,81 @@ def load_outcome(cls, payload, attr='v'):
     try:
         obj = cls.load(payload)
     except Exception as exc:  # noqa: BLE001 — comparing failures is the point
-        return ('raised', type(exc).__name__, str(exc))
+        return failure(exc)
     value = getattr(obj, attr)
     return ('ok', value, type(value).__name__)
+
+
+# ---------------------------------------------------------------------------
+# rusted 0.4.0 is built in three branches: the error contract, the null rule,
+# then strict coercion. Under seared 0.4.0 the later two show as differential
+# failures until their branch lands, so each such case is listed here with the
+# change that fixes it, and marked a strict xfail: it fails the moment it
+# passes, so no entry can outlive its fix. The coercion branch removes the
+# last entries, and this scaffold with them.
+# ---------------------------------------------------------------------------
+
+AWAITING = {
+    'the null rule': [
+        'tests/test_differential.py::TestParity::test_load[strict-str-none]',
+        'tests/test_differential.py::TestParity::test_load[lax-str-none]',
+        'tests/test_differential.py::TestMixedClassParity::test_load[strict-nulls]',
+        'tests/test_differential.py::TestMixedClassParity::test_load[lax-nulls]',
+        'tests/test_load.py::TestKeyResolution::test_explicit_null_beats_default',
+    ],
+    'strict coercion': [
+        'tests/kinds/test_mod.py::TestContainerParity::test_many[bool-strict]',
+        'tests/kinds/test_scalar.py::TestScalarParity::test_load[int7-bool-strict]',
+        'tests/kinds/test_scalar.py::TestScalarParity::test_load[int-3-bool-strict]',
+        'tests/kinds/test_scalar.py::TestScalarParity::test_load[float7.9-int-strict]',
+        'tests/kinds/test_scalar.py::TestScalarParity::test_load[float-0.5-int-strict]',
+        'tests/kinds/test_value.py::TestGenericSweep::test_load[float-0.5-strict-enum]',
+        'tests/kinds/test_value.py::TestGenericSweep::test_load[True-strict-enum]',
+        'tests/kinds/test_value.py::TestGenericSweep::test_load[False-strict-enum]',
+        'tests/test_differential.py::TestParity::test_load[strict-int-from-float]',
+        'tests/test_differential.py::TestLaxBoolAwaitsAbi2::test_a_lax_class_with_a_bool_declines',
+        'tests/test_differential.py::TestLaxBoolAwaitsAbi2::test_a_strict_parent_nesting_one_declines',
+    ],
+}
+
+
+def pytest_collection_modifyitems(items):
+    """Mark :data:`AWAITING`'s cases as strict xfails, naming the change each waits on."""
+    awaiting = {node: change for change, nodes in AWAITING.items() for node in nodes}
+    for item in items:
+        change = awaiting.get(item.nodeid)
+        if change is not None:
+            item.add_marker(pytest.mark.xfail(strict=True, reason=f'SPEC_ABI 2: awaits {change}'))
+
+
+def path_schema(*, accel: bool = True):
+    """Nested ``T``, ``many``, ``keyed`` and ``data_key``, for error paths.
+
+    Every class is built on the asked-for path, so an error raised deep inside
+    passes back up through compiled levels only (or Python ones only).
+    """
+
+    @s.seared(accel=accel)
+    class Leaf(s.Seared):
+        n: int = s.Int(required=True)
+        tags: list[str] = s.Str(many=True, default_factory=list)
+
+    @s.seared(accel=accel)
+    class Port(s.Seared):
+        port: int = s.Int(required=True, data_key='p')
+
+    @s.seared(accel=accel)
+    class Mid(s.Seared):
+        leaves: list[Leaf] = s.T(Leaf, many=True, required=True)
+
+    @s.seared(accel=accel)
+    class Root(s.Seared):
+        items: list[Leaf] = s.T(Leaf, many=True, required=True)
+        readers: dict[str, Port] = s.T(Port, keyed=True, default_factory=dict)
+        counts: dict[str, int] = s.Int(keyed=True, default_factory=dict)
+        mid: Mid | None = s.T(Mid, default=None)
+
+    return checked(Root, accel=accel)
 
 
 @pytest.fixture

@@ -176,5 +176,6 @@ class TestFlagsAreHonoured:
 
     def test_required_missing_raises_searreds_error(self):
         load, _ = rusted.compile_spec(spec(fields=[{**FIELD, 'required': True}]))
-        with pytest.raises(s.ValidationError, match=r'Plain\.a is required'):
+        with pytest.raises(s.ValidationError, match=r'^Plain\.a: required key missing$') as info:
             load({})
+        assert (info.value.reason, info.value.path, info.value.cls_name) == ('required key missing', ('a',), 'Plain')
