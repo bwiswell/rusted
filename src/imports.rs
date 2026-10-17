@@ -28,7 +28,7 @@ fn cls(py: Python<'_>, module: &str, name: &str) -> PyResult<Py<PyType>> {
     Ok(py
         .import(module)?
         .getattr(name)?
-        .downcast_into::<PyType>()?
+        .cast_into::<PyType>()?
         .unbind())
 }
 
