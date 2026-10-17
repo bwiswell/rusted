@@ -32,11 +32,7 @@ dev = [
 # commit). To test a seam change before it is pushed, point this at the
 # sibling checkout locally:
 #   seared = { path = "../seared", editable = true }
-#
-# While seared 0.4.0 is in development there is no tag yet, so this follows
-# its `version/0.4.0` branch, with the lock pinning a commit; it moves to
-# `tag = "v0.4.0"` in the commit that closes rusted 0.4.0.
-seared = { git = "https://github.com/bwiswell/seared", branch = "version/0.4.0" }
+seared = { git = "https://github.com/bwiswell/seared", tag = "v0.4.0" }
 
 [build-system]
 requires = ["maturin>=1.7,<2.0"]

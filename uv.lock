@@ -195,14 +195,14 @@ dev = [
     { name = "prek" },
     { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "ruff" },
-    { name = "seared", git = "https://github.com/bwiswell/seared?branch=version%2F0.4.0" },
+    { name = "seared", git = "https://github.com/bwiswell/seared?tag=v0.4.0" },
     { name = "ty" },
 ]
 
 [[package]]
 name = "seared"
-version = "0.3.4"
-source = { git = "https://github.com/bwiswell/seared?branch=version%2F0.4.0#c449dd5a8cf9e9965bdc61faa7203e00a639dc05" }
+version = "0.4.0"
+source = { git = "https://github.com/bwiswell/seared?tag=v0.4.0#c98f7d449a41a2fb84dc4a940dcf67fa3f4e5fdd" }
 
 [[package]]
 name = "tomli"

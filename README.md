@@ -38,7 +38,7 @@ that is broken.
 ## What it buys
 
 On seared's benchmark schema, `load` runs about **~11×** faster and `dump`
-about **~9×**. The numbers behind those ratios, with the method and the
+about **~8×**. The numbers behind those ratios, with the method and the
 spread across runs, are seared's generated
 [benchmark tables](https://github.com/bwiswell/seared/blob/master/docs/overview/benchmarks.md),
 re-recorded with each release; this page keeps only the rounded ratios, so

@@ -59,9 +59,9 @@ coercion.**
   `False`, as seared has since 0.3.3. Lax classes with a `Bool`, which seared kept off this core until `SPEC_ABI` 2,
   accelerate again.
 - **Supported seared:** `>=0.4,<0.5`, from `>=0.3.4,<0.4`. The floor is the first seared to emit `SPEC_ABI` 2.
-- **Dependencies:** seared, the test-only dependency, follows seared's `version/0.4.0` branch (`>=0.4,<0.5`), with
-  the lockfile pinning a commit, until seared 0.4.0 is tagged. The dev group's `pytest` range lifts to
-  `>=8.0,<10.0`, and the refreshed lockfile resolves pytest 9.1.1, ruff 0.17.1 and ty 0.0.89.
+- **Dependencies:** seared, the test-only dependency, is pinned to seared's `v0.4.0` tag (`>=0.4,<0.5`) and locked
+  to it. The dev group's `pytest` range lifts to `>=8.0,<10.0`, and the refreshed lockfile resolves pytest 9.1.1,
+  ruff 0.17.1 and ty 0.0.89.
 - **Built with pyo3 0.30 and Rust 1.99.1,** from pyo3 0.26 and Rust 1.98.0. Speed is unchanged: timed against a
   0.26 build of the same code, every `load` and `dump` figure moved by less than the spread between runs. The wheel
   is still `abi3-py314`, building from source still needs Rust 1.85 or later, and pyo3 0.30 needs five fewer
