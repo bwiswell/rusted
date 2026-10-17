@@ -29,7 +29,7 @@ from ._rusted import BUILD_PROFILE, SPEC_ABI, compile_spec
 #: stale — check it whenever seared's minor version moves.
 SUPPORTS_SEARED = '>=0.4,<0.5'
 
-__version__ = '0.3.2'
+__version__ = '0.4.0'
 
 __all__ = [
     'BUILD_PROFILE',
