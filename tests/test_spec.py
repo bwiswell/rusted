@@ -19,6 +19,7 @@ FIELD = {
     'wire': 'a',
     'kind': 'int',
     'required': False,
+    'nullable': False,
     'many': False,
     'keyed': False,
     'dump': True,
@@ -174,7 +175,23 @@ class TestFlagsAreHonoured:
         first.a.append(1)
         assert second.a == []
 
+    def test_nullable_keeps_a_null_over_the_default(self):
+        load, dump = rusted.compile_spec(spec(fields=[{**FIELD, 'nullable': True, 'default': 42}]))
+        assert load({'a': None}).a is None
+        assert load({}).a == 42
+        assert dump(load({'a': None})) == {'a': None}
+
+    def test_without_nullable_a_null_takes_the_default(self):
+        load, _ = rusted.compile_spec(spec(fields=[{**FIELD, 'default': 42}]))
+        assert load({'a': None}).a == 42
+
+    def test_an_abi_2_field_spec_must_say_whether_it_is_nullable(self):
+        field = {k: v for k, v in FIELD.items() if k != 'nullable'}
+        with pytest.raises(KeyError, match='nullable'):
+            rusted.compile_spec(spec(fields=[field]))
+
     def test_required_missing_raises_searreds_error(self):
         load, _ = rusted.compile_spec(spec(fields=[{**FIELD, 'required': True}]))
-        with pytest.raises(s.ValidationError, match=r'Plain\.a is required'):
+        with pytest.raises(s.ValidationError, match=r'^Plain\.a: required key missing$') as info:
             load({})
+        assert (info.value.reason, info.value.path, info.value.cls_name) == ('required key missing', ('a',), 'Plain')

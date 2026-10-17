@@ -20,11 +20,11 @@ from typing import TYPE_CHECKING
 
 import pytest
 import seared as s
-from conftest import Color, bench_schema, checked, lax_tier1_schema, one_field, outcome, same
+from conftest import Color, bench_schema, checked, load_outcome, null_schema, one_field, outcome, raw, same
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
-    import datetime
+    import datetime as dt
     import decimal
     import pathlib
     import uuid
@@ -67,14 +67,26 @@ CASES = {
 }
 IDS = list(CASES)
 
+#: The ``CASES`` each mode loads; it refuses the rest. The dump tests run only
+#: these, and ``TestCaseLists`` pins them, so a case that changes sides shows
+#: up as a failure rather than a skip.
+LOADING = {
+    'strict': [
+        'valid', 'int-from-str', 'int-overflow-str', 'float-from-str', 'float-from-int', 'float-inf',
+        'bool-from-str', 'bool-from-int', 'many-tuple', 'unknown-keys', 'defaults-omitted',
+    ],
+    'lax': [
+        'valid', 'int-from-str', 'int-from-float', 'int-from-bool', 'int-overflow-str', 'float-from-str',
+        'float-from-int', 'float-inf', 'str-wrong-type', 'bool-from-str', 'bool-from-int', 'bool-garbage',
+        'many-not-a-list', 'many-tuple', 'many-with-none', 'unknown-keys', 'defaults-omitted',
+    ],
+}  # fmt: skip
+DUMP_CASES = [(mode, case) for mode, cases in LOADING.items() for case in cases]
+
 
 @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
 def schemas(request):
-    if request.param:
-        return bench_schema(accel=True), bench_schema(accel=False)
-    # Lax `Bool` waits for SPEC_ABI 2 (see `LAX_TIER1`); this goes back to
-    # `bench_schema(validate=False)` with it.
-    return lax_tier1_schema(accel=True), lax_tier1_schema(accel=False)
+    return bench_schema(validate=request.param, accel=True), bench_schema(validate=request.param, accel=False)
 
 
 @pytest.mark.parametrize('case', IDS)
@@ -90,14 +102,16 @@ class TestParity:
             assert got[0] == 'ok'
             assert fast.dump(got[1]) == slow.dump(want[1])
 
-    def test_dump(self, schemas, case):
-        fast, slow = schemas
+
+class TestDumpParity:
+    """``dump`` over every payload a mode loads (``LOADING``); load parity is ``TestParity``'s job."""
+
+    @pytest.mark.parametrize(('mode', 'case'), DUMP_CASES, ids=[f'{m}-{c}' for m, c in DUMP_CASES])
+    def test_dump(self, mode, case):
+        validate = mode == 'strict'
+        fast, slow = bench_schema(validate=validate, accel=True), bench_schema(validate=validate, accel=False)
         payload = CASES[case]
-        try:
-            fast_obj, slow_obj = fast.load(payload), slow.load(payload)
-        except Exception:  # noqa: BLE001 — load parity is the other test's job
-            pytest.skip('payload does not load')
-        assert outcome(fast.dump, fast_obj) == outcome(slow.dump, slow_obj)
+        assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
 
 
 class TestCodecsRideAlong:
@@ -139,9 +153,9 @@ def mixed_schema(*, validate: bool = True, accel: bool = True):
     @s.seared(accel=accel, validate=validate)
     class Reading(s.Seared):
         ident: uuid.UUID = s.UUID(required=True)
-        when: datetime.datetime = s.DateTime(required=True)
-        day: datetime.date = s.Date()
-        elapsed: datetime.timedelta = s.TimeDelta()
+        when: dt.datetime = s.DateTime(required=True)
+        day: dt.date = s.Date()
+        elapsed: dt.timedelta = s.TimeDelta()
         amount: decimal.Decimal = s.Decimal()
         blob: bytes = s.Bytes()
         state: Color = s.Enum(enum=Color)
@@ -186,6 +200,14 @@ MIXED_CASES = {
 }
 
 
+#: The ``MIXED_CASES`` each mode loads, as ``LOADING`` is for ``CASES``.
+MIXED_LOADING = {
+    'strict': ['valid', 'minimal'],
+    'lax': ['valid', 'minimal', 'bad-decimal', 'bad-path'],
+}
+MIXED_ROUND_TRIPS = [(mode, case) for mode, cases in MIXED_LOADING.items() for case in cases]
+
+
 class TestMixedClassParity:
     @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
     def mixed(self, request):
@@ -210,15 +232,12 @@ class TestMixedClassParity:
             assert got[0] == 'ok'
             assert same(fast.dump(got[1]), slow.dump(want[1]))
 
-    @pytest.mark.parametrize('case', list(MIXED_CASES))
-    def test_round_trip(self, mixed, case):
-        fast, slow = mixed
+    @pytest.mark.parametrize(('mode', 'case'), MIXED_ROUND_TRIPS, ids=[f'{m}-{c}' for m, c in MIXED_ROUND_TRIPS])
+    def test_round_trip(self, mode, case):
+        validate = mode == 'strict'
+        fast, slow = mixed_schema(validate=validate, accel=True), mixed_schema(validate=validate, accel=False)
         payload = MIXED_CASES[case]
-        try:
-            fast_obj, slow_obj = fast.load(payload), slow.load(payload)
-        except Exception:  # noqa: BLE001 — load parity is the other test's job
-            pytest.skip('payload does not load')
-        assert same(outcome(fast.dump, fast_obj), outcome(slow.dump, slow_obj))
+        assert same(outcome(fast.dump, fast.load(payload)), outcome(slow.dump, slow.load(payload)))
 
     def test_valid_payload_round_trips_exactly(self, mixed):
         fast, _slow = mixed
@@ -232,34 +251,123 @@ class TestMixedClassParity:
 
 
 # ---------------------------------------------------------------------------
-# Lax `Bool` keeps the Python path until SPEC_ABI 2
+# The null rule, through a round trip (SPEC_ABI 2)
 # ---------------------------------------------------------------------------
 
-LAX_BOOL_REASON = 'Bool under validate=False is not accelerated until SPEC_ABI 2'
+
+#: (label, attributes) — instances with ``None`` in different places.
+NULL_OBJECTS = [
+    ('only-required', {'req': 1, 'n_req': None}),
+    ('every-nullable-none', {'req': 1, 'n_req': None, 'n_dflt': None, 'n_many': None, 'n_keyed': None, 'n_leaf': None}),
+    ('non-nullable-none', {'req': 1, 'n_req': 2, 'dflt': None, 'bare': None, 'leaf': None}),
+    ('values', {'req': 1, 'n_req': 2, 'n_dflt': 3, 'n_many': [4], 'n_keyed': {'k': 5}, 'factory': [6]}),
+]
 
 
-class TestLaxBoolAwaitsAbi2:
-    """seared 0.3.3's decline, seen from this side of the seam.
+@pytest.mark.parametrize('validate', [True, False], ids=['strict', 'lax'])
+class TestNullRoundTrip:
+    """Pin: ``load(dump(x))`` agrees with seared on every arrangement of ``None``s.
 
-    seared fixed lax ``Bool`` in Python (``'false'`` used to load as ``True``),
-    and this core still implements the ABI 1 answer, so seared declines any
-    lax class with a ``Bool`` rather than let the answer depend on which wheel
-    is installed. These are tripwires: when ``SPEC_ABI`` 2 lifts the decline
-    they fail, and the lax ``Bool`` work is due (``de_bool``, ``LAX_TIER1``).
+    A nullable ``None`` comes back as ``None``; one on any other field comes
+    back as the field's default, since ``dump`` left it out.
     """
 
-    def test_a_lax_class_with_a_bool_declines(self):
-        @s.seared(validate=False)
-        class Lax(s.Seared):
-            on: bool = s.Bool(required=True)
+    @pytest.mark.parametrize(('label', 'attrs'), NULL_OBJECTS, ids=[o[0] for o in NULL_OBJECTS])
+    def test_round_trip(self, validate, label, attrs):
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        fast_wire, slow_wire = fast.dump(fast(**attrs)), slow.dump(slow(**attrs))
+        assert fast_wire == slow_wire, label
+        assert fast.dump(fast.load(fast_wire)) == slow.dump(slow.load(slow_wire)), label
 
-        info = Lax.__seared_accel__
-        assert info.accelerated is False
-        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
-        # seared's own path gives the fixed answer.
-        assert Lax.load({'on': 'false'}).on is False
 
-    def test_a_strict_parent_nesting_one_declines(self):
+# ---------------------------------------------------------------------------
+# Errors crossing back over the seam (SPEC_ABI 2)
+# ---------------------------------------------------------------------------
+
+
+def seam_schema(*, accel: bool, payload_key: str | None):
+    """A ``Union`` parent holding a variant built on the asked-for path.
+
+    ``Union`` never accelerates, so the parent always runs seared's Python
+    path: an error from a compiled variant crosses back over the seam, where
+    seared adds the envelope's location to rusted's error as if it had raised
+    it.
+    """
+
+    @s.seared(accel=accel)
+    class Start(s.Seared):
+        speed: int = s.Int(required=True)
+        tags: list[str] = s.Str(many=True, default_factory=list)
+
+    checked(Start, accel=accel)
+
+    @s.seared
+    class Command(s.Seared):
+        action: object = s.Union(variants={'start': Start}, tag_key='kind', payload_key=payload_key)
+
+    assert Command.__seared_accel__.accelerated is False
+    return Command, Start
+
+
+#: (label, payload_key, payload).
+SEAM_CASES = [
+    ('nested-bad-value', 'args', {'kind': 'start', 'args': {'speed': 'x'}}),
+    ('nested-bad-item', 'args', {'kind': 'start', 'args': {'speed': 1, 'tags': ['a', 7]}}),
+    ('nested-missing', 'args', {'kind': 'start', 'args': {}}),
+    ('nested-not-a-dict', 'args', {'kind': 'start', 'args': [1]}),
+    ('flat-bad-value', None, {'kind': 'start', 'speed': 'x'}),
+    ('flat-missing', None, {'kind': 'start'}),
+]
+
+
+class TestAcrossTheSeam:
+    """Pin: a compiled variant's error, located again by seared's ``Union``, matches the Python path's."""
+
+    @pytest.mark.parametrize(('label', 'payload_key', 'payload'), SEAM_CASES, ids=[c[0] for c in SEAM_CASES])
+    def test_load(self, label, payload_key, payload):
+        fast, _ = seam_schema(accel=True, payload_key=payload_key)
+        slow, _ = seam_schema(accel=False, payload_key=payload_key)
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert want[:2] == ('raised', 'ValidationError'), label
+        assert got == want
+
+    @pytest.mark.parametrize('payload_key', ['args', None], ids=['nested', 'flat'])
+    def test_dump(self, payload_key):
+        outcomes = []
+        for accel in (True, False):
+            command, start = seam_schema(accel=accel, payload_key=payload_key)
+            outcomes.append(outcome(command.dump, command(action=raw(start, speed='x', tags=[]))))
+        assert outcomes[0] == outcomes[1]
+        assert outcomes[0][3:] == ('expected int, got str', ('action', 'speed'), 'Command')
+
+
+# ---------------------------------------------------------------------------
+# Lax `Bool`: the spelling table, then truthiness (SPEC_ABI 2)
+# ---------------------------------------------------------------------------
+
+
+class TestLaxBool:
+    """Lax ``Bool`` accelerates, with seared's answer: the spelling table, then truthiness.
+
+    seared 0.3.3 fixed it in Python (``'false'`` used to load as ``True``) and
+    declined lax classes with a ``Bool`` until a backend carried the fix.
+    ``SPEC_ABI`` 2 does, so they accelerate again.
+    """
+
+    @pytest.mark.parametrize('value', ['false', ' OFF ', 'no', '0', 'true', 'maybe', '', 2, 0, [], None])
+    def test_a_lax_class_with_a_bool_accelerates_and_matches(self, value):
+        def build(*, accel):
+            @s.seared(validate=False, accel=accel)
+            class Lax(s.Seared):
+                on: bool = s.Bool(required=True)
+
+            return checked(Lax, accel=accel)
+
+        fast, slow = build(accel=True), build(accel=False)
+        assert load_outcome(fast, {'on': value}, attr='on') == load_outcome(slow, {'on': value}, attr='on')
+        assert fast.load({'on': 'false'}).on is False
+
+    def test_a_strict_parent_nesting_one_accelerates(self):
         @s.seared(validate=False)
         class Lax(s.Seared):
             on: bool = s.Bool(required=True)
@@ -268,13 +376,26 @@ class TestLaxBoolAwaitsAbi2:
         class Parent(s.Seared):
             inner: Lax = s.T(Lax, required=True)
 
-        info = Parent.__seared_accel__
-        assert info.accelerated is False
-        assert f'Lax.on: {LAX_BOOL_REASON}' in info.reason
+        checked(Parent, accel=True)
+        assert Parent.load({'inner': {'on': 'off'}}).inner.on is False
 
     def test_strict_bool_still_accelerates(self):
         checked(one_field('bool'), accel=True)
         checked(bench_schema(), accel=True)
 
-    def test_lax_without_a_bool_still_accelerates(self):
-        checked(lax_tier1_schema(), accel=True)
+
+class TestCaseLists:
+    """``LOADING`` and ``MIXED_LOADING`` name exactly the cases each mode loads, so the
+    dump tests skip nothing without saying so."""
+
+    @pytest.mark.parametrize('mode', ['strict', 'lax'])
+    @pytest.mark.parametrize('case', IDS)
+    def test_bench_case(self, mode, case):
+        slow = bench_schema(validate=mode == 'strict', accel=False)
+        assert (outcome(slow.load, CASES[case])[0] == 'ok') is (case in LOADING[mode])
+
+    @pytest.mark.parametrize('mode', ['strict', 'lax'])
+    @pytest.mark.parametrize('case', list(MIXED_CASES))
+    def test_mixed_case(self, mode, case):
+        slow = mixed_schema(validate=mode == 'strict', accel=False)
+        assert (outcome(slow.load, MIXED_CASES[case])[0] == 'ok') is (case in MIXED_LOADING[mode])

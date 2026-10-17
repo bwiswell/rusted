@@ -8,9 +8,10 @@ two are indistinguishable, values *and* exceptions.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import decimal
 import enum
+import math
 import pathlib
 import uuid
 
@@ -68,18 +69,9 @@ VALUE = ['uuid', 'decimal', 'bytes', 'enum', 'path', 'dict']
 TIER2 = TEMPORAL + VALUE
 MODES = [(True, 'strict'), (False, 'lax')]
 
-#: Tier 1 minus ``bool``, for lax mode. seared 0.3.3 fixed lax ``Bool`` in
-#: Python and keeps lax classes with one off the accelerator until
-#: ``SPEC_ABI`` 2, since this core still implements the ABI 1 answer. ``bool``
-#: rejoins the lax sweeps with that ABI.
-LAX_TIER1 = ['int', 'float', 'str']
-
-#: ``(kind, validate)`` for each Tier 1 kind, in each mode it accelerates in.
-TIER1_MODES = [
-    pytest.param(kind, validate, id=f'{kind}-{mode}')
-    for validate, mode in MODES
-    for kind in (TIER1 if validate else LAX_TIER1)
-]
+#: ``(kind, validate)`` for each Tier 1 kind, in both modes. Lax ``bool``
+#: joined with ``SPEC_ABI`` 2, which carries seared 0.3.3's lax-``Bool`` fix.
+TIER1_MODES = [pytest.param(kind, validate, id=f'{kind}-{mode}') for validate, mode in MODES for kind in TIER1]
 
 #: Config a field type cannot be constructed without.
 KIND_KWARGS = {'enum': {'enum': Color}}
@@ -97,21 +89,24 @@ KIND_VALUES = {
         '2026-08-31',
         '2026-02-30',
         '31/08/2026',
-        datetime.date(2026, 8, 31),
-        datetime.datetime(2026, 8, 31, 12, 0),
+        dt.date(2026, 8, 31),
+        dt.datetime(2026, 8, 31, 12, 0),
     ],
     'datetime': [
         '2026-08-31T12:30:00',
         '2026-08-31 12:30:00+00:00',
         '2026-08-31',
         'nope',
-        datetime.datetime(2026, 8, 31, 12, 0),
+        dt.datetime(2026, 8, 31, 12, 0),
     ],
-    'time': ['12:30', '12:30:45', '25:00', datetime.time(12, 30)],
-    'timedelta': [0, 90.5, '90.5', -1, datetime.timedelta(seconds=90.5)],
+    'time': ['12:30', '12:30:45', '25:00', dt.time(12, 30)],
+    'timedelta': [0, 90.5, '90.5', -1, dt.timedelta(seconds=90.5)],
     'decimal': ['3.14159', '1e400', 'nan', '0', 3.5, 1, decimal.Decimal('3.14')],
     'bytes': ['ZGVhZGJlZWY=', 'deadbeef', 'not!base64!', b'raw', bytearray(b'raw')],
-    'enum': [0, 1, 2, '0', 'RED', Color.RED],
+    # Int-valued: seared's `Int` rules pick the key, so a fractional float or a
+    # bool is refused in strict mode and truncated or read as 1 in lax mode;
+    # `inf` and a `Decimal` are refused in both.
+    'enum': [0, 1, 2, '0', 'RED', Color.RED, 1.0, 1.9, True, math.inf, decimal.Decimal(1)],
     'path': ['a/b/c.txt', '/abs/path', '', pathlib.Path('a/b')],
     'dict': [{}, {'k': 'v'}, {'n': 1}],
 }
@@ -125,8 +120,12 @@ VALUES = [
     7,
     -3,
     0,
+    1,
     7.9,
     -0.5,
+    3.0,
+    math.inf,
+    math.nan,
     True,
     False,
     '7',
@@ -148,8 +147,12 @@ VALUE_IDS = [
     'int7',
     'int-3',
     'int0',
+    'int1',
     'float7.9',
     'float-0.5',
+    'float3.0',
+    'inf',
+    'nan',
     'True',
     'False',
     'str7',
@@ -221,29 +224,6 @@ def bench_schema(*, validate: bool = True, accel: bool = True):
     return checked(Outer, accel=accel)
 
 
-def lax_tier1_schema(*, accel: bool = True):
-    """The bench schema minus its ``Bool``, decorated lax: seared's own ``_lax_tier1``.
-
-    It stands in for ``bench_schema(validate=False)`` until ``SPEC_ABI`` 2,
-    which lax ``Bool`` waits for (see :data:`LAX_TIER1`). A ``flag`` in the
-    payload is then an unknown key, ignored on both paths.
-    """
-
-    @s.seared(accel=accel, validate=False)
-    class Inner(s.Seared):
-        x: int = s.Int(required=True)
-        y: float = s.Float(required=True)
-        label: str | None = s.Str(default=None)
-
-    @s.seared(accel=accel, validate=False)
-    class Outer(s.Seared):
-        name: str = s.Str(required=True)
-        items: list[Inner] = s.T(Inner, many=True, required=True)
-        tags: list[str] = s.Str(many=True, default_factory=list)
-
-    return checked(Outer, accel=accel)
-
-
 def nested_bytes_schema(*, validate: bool = True, accel: bool = True):
     """A `Bytes` behind a `T` — the one shape where `format=` is observable.
 
@@ -296,12 +276,24 @@ def same(a, b):
     return a == b
 
 
+def failure(exc):
+    """``('raised', ExcType, message, …parts)`` — a failure, comparable.
+
+    A ``ValidationError`` also carries its parts (``SPEC_ABI`` 2). Comparing
+    the message alone would miss a path that renders the same but holds
+    different types: an index ``1`` against a keyed-dict key ``'1'``.
+    """
+    if isinstance(exc, s.ValidationError):
+        return ('raised', type(exc).__name__, str(exc), exc.reason, exc.path, exc.cls_name)
+    return ('raised', type(exc).__name__, str(exc))
+
+
 def outcome(fn, *args):
-    """``('ok', value)`` or ``('raised', ExcType, message)`` — comparable."""
+    """``('ok', value)``, or :func:`failure`'s tuple — comparable."""
     try:
         return ('ok', fn(*args))
     except Exception as exc:  # noqa: BLE001 — comparing failures is the point
-        return ('raised', type(exc).__name__, str(exc))
+        return failure(exc)
 
 
 def load_outcome(cls, payload, attr='v'):
@@ -309,9 +301,85 @@ def load_outcome(cls, payload, attr='v'):
     try:
         obj = cls.load(payload)
     except Exception as exc:  # noqa: BLE001 — comparing failures is the point
-        return ('raised', type(exc).__name__, str(exc))
+        return failure(exc)
     value = getattr(obj, attr)
     return ('ok', value, type(value).__name__)
+
+
+def null_schema(*, validate: bool = True, accel: bool = True):
+    """One field per column of seared's null table, plus nullable containers.
+
+    ``req`` / ``dflt`` / ``bare`` aren't nullable, so a ``null`` reads as an
+    absent key; ``n_dflt`` / ``n_req`` are, so it's ``None``, even over a
+    default. The ``n_*`` containers and ``n_leaf`` are nullable as a whole.
+    """
+
+    @s.seared(accel=accel, validate=validate)
+    class Leaf(s.Seared):
+        n: int = s.Int(required=True)
+
+    @s.seared(accel=accel, validate=validate)
+    class Row(s.Seared):
+        req: int = s.Int(required=True)
+        dflt: int = s.Int(default=5)
+        bare: int | None = s.Int()
+        n_dflt: int | None = s.Int(nullable=True, default=5)
+        n_req: int | None = s.Int(nullable=True, required=True)
+        factory: list[int] = s.Int(many=True, default_factory=list)
+        n_many: list[int] | None = s.Int(many=True, nullable=True, default_factory=list)
+        n_keyed: dict[str, int] | None = s.Int(keyed=True, nullable=True)
+        leaf: Leaf | None = s.T(Leaf)
+        n_leaf: Leaf | None = s.T(Leaf, nullable=True)
+
+    return checked(Row, accel=accel)
+
+
+#: ``null_schema``'s columns, each with a value it loads.
+NULL_COLUMNS = {
+    'req': 7,
+    'dflt': 7,
+    'bare': 7,
+    'n_dflt': 7,
+    'n_req': 7,
+    'factory': [1],
+    'n_many': [1],
+    'n_keyed': {'a': 1},
+    'leaf': {'n': 1},
+    'n_leaf': {'n': 1},
+}
+
+#: The payload every other column is filled from, so only one column varies.
+NULL_BASE = {'req': 1, 'n_req': 2}
+
+
+def path_schema(*, accel: bool = True):
+    """Nested ``T``, ``many``, ``keyed`` and ``data_key``, for error paths.
+
+    Every class is built on the asked-for path, so an error raised deep inside
+    passes back up through compiled levels only (or Python ones only).
+    """
+
+    @s.seared(accel=accel)
+    class Leaf(s.Seared):
+        n: int = s.Int(required=True)
+        tags: list[str] = s.Str(many=True, default_factory=list)
+
+    @s.seared(accel=accel)
+    class Port(s.Seared):
+        port: int = s.Int(required=True, data_key='p')
+
+    @s.seared(accel=accel)
+    class Mid(s.Seared):
+        leaves: list[Leaf] = s.T(Leaf, many=True, required=True)
+
+    @s.seared(accel=accel)
+    class Root(s.Seared):
+        items: list[Leaf] = s.T(Leaf, many=True, required=True)
+        readers: dict[str, Port] = s.T(Port, keyed=True, default_factory=dict)
+        counts: dict[str, int] = s.Int(keyed=True, default_factory=dict)
+        mid: Mid | None = s.T(Mid, default=None)
+
+    return checked(Root, accel=accel)
 
 
 @pytest.fixture

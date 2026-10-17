@@ -1,15 +1,18 @@
 //! Instance → wire dict.
 //!
 //! Mirrors `seared._core.decorator._make_dump`: skip `dump=False` fields,
-//! skip `None` values, read attributes with a missing-slot tolerance, and
-//! coerce through the same per-kind serialisers.
+//! write a `None` only on a nullable field and skip it everywhere else, read
+//! attributes with a missing-slot tolerance, and coerce through the same
+//! per-kind serialisers. A failure gains the
+//! attribute name and the class as it passes back up: a `dump` path names
+//! attributes, since its input is the object.
 
 use pyo3::exceptions::PyAttributeError;
 use pyo3::prelude::*;
 use pyo3::types::PyDict;
 
 use crate::kinds::temporal::{self, DateKind};
-use crate::kinds::{apply, scalar, type_name, value, verr};
+use crate::kinds::{apply, relocate, scalar, type_name, value, verr};
 use crate::spec::{FieldSpec, Kind, Schema};
 
 pub(crate) fn dump(
@@ -18,22 +21,31 @@ pub(crate) fn dump(
     obj: &Bound<'_, PyAny>,
     format: &str,
 ) -> PyResult<Py<PyAny>> {
+    let err = schema.error.bind(py);
     let out = PyDict::new(py);
     for f in &schema.fields {
         if !f.dump {
             continue;
         }
         let v = match obj.getattr(f.attr.bind(py)) {
-            Ok(v) => v,
+            Ok(v) => Some(v),
             // seared reads with `getattr(obj, attr, None)`: an unset slot
-            // dumps as absent, same as None.
-            Err(e) if e.is_instance_of::<PyAttributeError>(py) => continue,
+            // counts as `None`.
+            Err(e) if e.is_instance_of::<PyAttributeError>(py) => None,
             Err(e) => return Err(e),
         };
-        if v.is_none() {
+        let Some(v) = v.filter(|v| !v.is_none()) else {
+            // `null` only where it's a value; anywhere else `None` is left
+            // out, which a `load` reads back the same way.
+            if f.nullable {
+                out.set_item(f.wire.bind(py), py.None())?;
+            }
             continue;
-        }
-        out.set_item(f.wire.bind(py), ser_field(schema, py, f, &v, format)?)?;
+        };
+        let attr = f.attr.bind(py);
+        let x = ser_field(schema, py, f, &v, format)
+            .map_err(|e| relocate(py, e, err, Some(attr.as_any()), Some(&schema.name)))?;
+        out.set_item(f.wire.bind(py), x)?;
     }
     Ok(out.into_any().unbind())
 }

@@ -6,23 +6,26 @@
 exactly as it always has. No code changes either way.
 
 ```sh
-uv add git+https://github.com/bwiswell/rusted --tag v0.3.2
+uv add git+https://github.com/bwiswell/rusted --tag v0.4.0
 ```
 
 That is the entire user-facing API. There is nothing to import and nothing to
 call — seared finds it.
 
-Each release is tagged `v<version>` on GitHub (the first is `v0.3.2`), and
+Each release is tagged `v<version>` on GitHub (the first is `v0.3.2`; the
+latest is `v0.4.0`), and
 `uv add` records the tag as the dependency's source:
 
 ```toml
 [tool.uv.sources]
-rusted = { git = "https://github.com/bwiswell/rusted", tag = "v0.3.2" }
+rusted = { git = "https://github.com/bwiswell/rusted", tag = "v0.4.0" }
 ```
 
 **The tag is the pin.** uv doesn't check a version specifier against a git
 source: it takes whatever the source points at, and a source without a tag
 points at the tip of `master`. Moving to a new release means moving the tag.
+What changed in each release, and which seared it supports, is in
+[`CHANGELOG.md`](CHANGELOG.md).
 
 **A git install builds from source and needs a Rust toolchain** (`rustup`,
 1.85+). That is the current state, not the intent: the point of an accelerator
@@ -34,31 +37,22 @@ that is broken.
 
 ## What it buys
 
-Measured by seared's own bench harness (20k iterations, one process, Python
-3.14.3, Linux x86_64), from the run recorded in seared's
-`bench/results.json` — the same artifact seared's own docs quote, so the two
-repos cannot drift apart on this:
-
-| op   | seared (pure Python) | with `rusted` | speedup |
-|------|---------------------:|--------------:|--------:|
-| load | 34.6 µs              | **3.0 µs**    | ~11.4×  |
-| dump | 22.3 µs              | **2.4 µs**    | ~9.1×   |
-
-One recorded run is one sample. On an idle machine repeated runs land within
-a few percent; under background load the spread reaches ±20% and drags the
-*ratio* with it — the load figure was seen anywhere from 10.0× to 11.8×
-while other work was running. Bench on a quiet box and read these as ~11×
-and ~9×.
+On seared's benchmark schema, `load` runs about **~11×** faster and `dump`
+about **~8×**. The numbers behind those ratios, with the method and the
+spread across runs, are seared's generated
+[benchmark tables](https://github.com/bwiswell/seared/blob/master/docs/overview/benchmarks.md),
+re-recorded with each release; this page keeps only the rounded ratios, so
+it has nothing to fall out of date. Bench on a quiet machine: background
+load widens the spread and drags the ratio with it.
 
 On `load`, validation becomes effectively free — strict and lax land within
 noise of each other, because the guards turn into C-level type checks
-instead of `isinstance` calls. On `dump` strict still costs ~15%, in *both*
-implementations: there the guards are most of what the pass does, so making
-them cheaper doesn't make them disappear.
+instead of `isinstance` calls. On `dump` strict still costs about 15% (see
+seared's tables), in *both* implementations: there the guards are most of
+what the pass does, so making them cheaper doesn't make them disappear.
 
 The remaining cost is dominated by Python object construction, which no
-compiled core can remove; a pure-Rust round trip of the same payload runs
-~2.0 µs, so there is no second order of magnitude waiting behind this one.
+compiled core can remove.
 
 ## What gets accelerated
 
@@ -69,30 +63,27 @@ recursively, through `T` — is one this build implements:
 - **Tier 2** — `UUID`, `Date`, `DateTime`, `Time`, `TimeDelta`, `Decimal`,
   `Bytes`, `Enum`, `Path`, `Dict`
 
-with `many`, `keyed`, `required`, `default`, `default_factory`, `data_key`
-and `dump=False` on any of them.
+with `many`, `keyed`, `required`, `nullable`, `default`, `default_factory`,
+`data_key` and `dump=False` on any of them.
 
 Still on the Python path, each for a reason: `Union` (an UNWRAP field
 consuming several keys from its *parent's* map), `Tuple` (per-slot
 sub-fields), `NDArray` / `PandasFrame` / `PolarsFrame` (optional imports, and
 dominated by frame conversion anyway), user-defined `Field` subclasses (they
 can override `serialize` in Python, so exact type identity is what gates
-acceleration), and any class with a hand-written `__init__` or a
+acceleration), any class with a hand-written `__init__` or a
 `__post_init__` (the compiled core builds instances via `__new__`, which
-would skip them).
-
-One more, until the next `SPEC_ABI`: a `validate=False` class with a `Bool`
-field, and any class nesting one. seared 0.3.3 fixed lax `Bool` (`'false'`
-used to load as `True`) and this core still gives the old answer, so seared
-keeps those classes on the Python path rather than let the answer depend on
-which wheel is installed. Strict `Bool` is unaffected.
+would skip them), a class with a plain dataclass attribute (`b: int = 5` is
+not a seared `Field`, so it never reaches the spec, and the compiled path
+would leave its slot unset), and an `Enum` field over an enum with no
+members (seared reads the first member to pick the lookup, so the Python
+path raises there, as it always has).
 
 Tier 2 does not run 10× — those kinds spend their time constructing Python
 objects (`uuid.UUID`, `datetime.strptime`, `Decimal`), which is work no
-compiled core removes. On a realistic mixed message class it is ~2.6× load /
-~2.1× dump. The point of Tier 2 is that **all-or-nothing cuts both ways**: a
-single `Bytes` field used to disqualify an entire class, Tier 1 fields
-included. Now it doesn't.
+compiled core removes. The point of Tier 2 is that **all-or-nothing cuts
+both ways**: a single `Bytes` field used to disqualify an entire class,
+Tier 1 fields included. Now it doesn't.
 
 Ask seared what happened:
 
@@ -124,6 +115,10 @@ raised from Rust. That is what keeps the family's dependency arrow pointing
 one way, and it means `rusted` can only ever be a no-op: a missing wheel, an
 ABI mismatch, or a backend that raises all end in the Python path.
 
+From `SPEC_ABI` 2 those errors carry seared's parts too, the `.reason`, the
+`.path` into the input and the outermost `.cls_name`, so they read exactly
+as seared's own: `Outer.items[1].n: cannot deserialize 'x' as int`.
+
 Compatibility is one integer. `rusted.SPEC_ABI` must equal seared's or seared
 declines the backend outright; `SUPPORTS_SEARED` is diagnostic text, never
 enforced (seared is zero-dependency and has no PEP 440 parser to enforce it
@@ -150,9 +145,14 @@ once with `accel=False` — and asserts identical values, identical exception
 classes and identical message text. seared's own suite is the second gate:
 
 ```sh
-# from the seared checkout, with rusted installed
-SEARED_ACCEL=require SEARED_ACCEL_BACKEND=rusted uv run pytest
+# from a sibling seared checkout, against this working tree's build
+SEARED_ACCEL=require PYTHONPATH=../rusted/python uv run --no-sync pytest
 ```
+
+`PYTHONPATH` puts this checkout's `rusted` (built in place by
+`maturin develop`) ahead of any installed one, and `--no-sync` keeps uv from
+resetting seared's environment, so nothing is installed into it.
+`require` makes the run fail if the backend doesn't load.
 
 If that diverges from a plain run, the accelerator is wrong, not seared.
 
@@ -164,11 +164,17 @@ plus `test_differential.py` for the contract as a whole.
 - **`master` holds released commits only,** and moves only by merge.
 - **A release is a `version/x.y.z` branch** off `master`.
 - **Work on it happens in `feat/…` and `fix/…` branches,** each a pull
-  request squash-merged into the version branch.
+  request squash-merged into the version branch. Each adds its own lines to
+  the `unreleased` entry at the top of `CHANGELOG.md`.
 - **Once those are all in, one `chore: version bump` commit** on the version
   branch bumps the version in `Cargo.toml`, `pyproject.toml` and
   `python/rusted/__init__.py` together (a test checks that the three agree),
-  and refreshes both lockfiles.
+  refreshes both lockfiles, and dates the changelog entry.
+- **In lockstep with a seared release,** the test-only seared source follows
+  seared's untagged version branch while both are in development, so the
+  bump comes first and its wheel serves seared's benchmark re-record. Once
+  seared is tagged, a second commit, `chore: pin seared release tag`, moves
+  the source to that tag and relocks before the merge.
 - **The version branch then merges into `master`.** There, the `Release Tag`
   workflow (`.github/workflows/release-tag.yml`) tags it `v<version>` and
   publishes a GitHub release.

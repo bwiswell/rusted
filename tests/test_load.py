@@ -2,9 +2,22 @@
 
 from __future__ import annotations
 
+import functools
+import operator
+
 import pytest
 import seared as s
-from conftest import bench_schema, lax_tier1_schema, load_outcome, nested_bytes_schema, one_field, outcome
+from conftest import (
+    NULL_BASE,
+    NULL_COLUMNS,
+    bench_schema,
+    load_outcome,
+    nested_bytes_schema,
+    null_schema,
+    one_field,
+    outcome,
+    path_schema,
+)
 
 PAYLOAD = {
     'name': 'demo',
@@ -45,10 +58,11 @@ class TestKeyResolution:
         payload = {**PAYLOAD, 'surprise': 1}
         assert fast.dump(fast.load(payload)) == slow.dump(slow.load(payload))
 
-    def test_explicit_null_beats_default(self, pair):
+    def test_a_null_on_a_defaulted_field_reads_as_absent(self, pair):
+        # ``SPEC_ABI`` 2: the default, ``False``, where ABI 1 loaded ``None``.
         fast, slow = pair
         payload = {**PAYLOAD, 'flag': None}
-        assert fast.load(payload).flag is slow.load(payload).flag is None
+        assert fast.load(payload).flag is slow.load(payload).flag is False
 
 
 class TestShape:
@@ -163,19 +177,170 @@ class TestConstruction:
 
 
 class TestLaxMode:
-    # Over the bench schema minus its `Bool` until SPEC_ABI 2, which brings
-    # back `bench_schema(validate=False)` and a lax `flag` payload
-    # (`test_differential.py::TestLaxBoolAwaitsAbi2`).
+    # The whole bench schema, `Bool` included: lax `bool` reads the spelling
+    # table before truthiness, as seared's does (SPEC_ABI 2).
     @pytest.mark.parametrize(
         'payload',
         [
             {'name': 42, 'items': []},
             {'name': 'n', 'items': [{'x': True, 'y': 1}]},
             {'name': 'n', 'items': [], 'tags': 'notalist'},
+            {'name': 'n', 'items': [{'x': 3.7, 'y': 1}]},
+            {'name': 'n', 'items': [], 'flag': 'false'},
+            {'name': 'n', 'items': [], 'flag': ' OFF '},
+            {'name': 'n', 'items': [], 'flag': 'maybe'},
+            {'name': 'n', 'items': [], 'flag': 2},
         ],
     )
     def test_matches(self, payload):
-        fast = lax_tier1_schema(accel=True)
-        slow = lax_tier1_schema(accel=False)
-        assert load_outcome(fast, payload, attr='name') == load_outcome(slow, payload, attr='name')
+        fast = bench_schema(validate=False, accel=True)
+        slow = bench_schema(validate=False, accel=False)
+        assert load_outcome(fast, payload, attr='flag') == load_outcome(slow, payload, attr='flag')
         assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
+
+
+#: (label, payload) — each fails somewhere specific, for :class:`TestErrorPaths`.
+PATH_CASES = [
+    ('leaf-in-a-list', {'items': [{'n': 1}, {'n': 'x'}]}),
+    ('list-in-a-leaf', {'items': [{'n': 1, 'tags': ['a', 7]}]}),
+    ('keyed-str-key', {'items': [], 'readers': {'r-1': {'p': 'bad'}}}),
+    ('keyed-int-key', {'items': [], 'counts': {1: 'x'}}),
+    ('keyed-digit-str-key', {'items': [], 'counts': {'1': 'x'}}),
+    ('three-deep', {'items': [], 'mid': {'leaves': [{'n': 1}, {'n': 2, 'tags': [None]}]}}),
+    ('missing-at-the-top', {}),
+    ('missing-three-deep', {'items': [], 'mid': {'leaves': [{}]}}),
+    ('missing-by-its-data-key', {'items': [], 'readers': {'a': {'port': 1}}}),
+    ('non-dict-at-the-top', ['x']),
+    ('non-dict-nested', {'items': [7]}),
+    ('many-not-a-list', {'items': 'nope'}),
+    ('keyed-not-a-dict', {'items': [], 'readers': [1]}),
+]
+
+#: The cases whose path ends at a value that is there to retrieve.
+RETRIEVABLE = [
+    'leaf-in-a-list',
+    'list-in-a-leaf',
+    'keyed-str-key',
+    'keyed-int-key',
+    'keyed-digit-str-key',
+    'three-deep',
+]
+
+
+@pytest.fixture(scope='class')
+def roots():
+    return path_schema(accel=True), path_schema(accel=False)
+
+
+class TestErrorPaths:
+    """Pin the ``SPEC_ABI`` 2 error contract on ``load``: the same reason, path and class as seared.
+
+    The path holds wire keys, list indices and keyed-dict keys (the key
+    object itself), and ``cls_name`` is the outermost class.
+    """
+
+    @pytest.mark.parametrize(('label', 'payload'), PATH_CASES, ids=[c[0] for c in PATH_CASES])
+    def test_parts_match(self, roots, label, payload):
+        fast, slow = roots
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert want[:2] == ('raised', 'ValidationError'), label
+        assert got == want
+
+    @pytest.mark.parametrize(('label', 'payload'), [c for c in PATH_CASES if c[0] in RETRIEVABLE], ids=RETRIEVABLE)
+    def test_the_path_retrieves_the_offending_value(self, roots, label, payload):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load(payload)
+        assert info.value.cls_name == 'Root'
+        offending = functools.reduce(operator.getitem, info.value.path, payload)
+        assert offending in ('x', 7, 'bad', None)
+
+    def test_an_int_key_and_a_str_key_are_different_paths(self, roots):
+        fast, _ = roots
+        paths = []
+        for key in (1, '1'):
+            with pytest.raises(s.ValidationError) as info:
+                fast.load({'items': [], 'counts': {key: 'x'}})
+            paths.append(info.value.path)
+        assert paths == [('counts', 1), ('counts', '1')]
+
+    def test_a_missing_required_key_ends_the_path_at_its_wire_key(self, roots):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load({'items': [], 'readers': {'a': {'port': 1}}})
+        assert str(info.value) == 'Root.readers.a.p: required key missing'
+
+    def test_a_non_dict_names_the_class_alone(self, roots):
+        fast, _ = roots
+        with pytest.raises(s.ValidationError) as info:
+            fast.load(['x'])
+        assert (str(info.value), info.value.path) == ('Root: expected dict, got list', ())
+
+
+#: What ``load`` gives for each wire state: seared's null table (``SPEC_ABI`` 2).
+NULL_TABLE = {
+    #          absent                   null                     value
+    'req': ('required key missing', 'required key missing', 7),
+    'dflt': (5, 5, 7),
+    'bare': (None, None, 7),
+    'n_dflt': (5, None, 7),
+    'n_req': ('required key missing', None, 7),
+}
+
+_ABSENT = object()
+
+
+def _loaded(cls, column, wire):
+    """``column``'s load outcome with ``wire`` as its value (or key absent).
+
+    A nested instance is compared through its dump: the two paths' ``Leaf``
+    classes are distinct, so their instances are never equal.
+    """
+    payload = {k: v for k, v in NULL_BASE.items() if k != column}
+    if wire is not _ABSENT:
+        payload[column] = wire
+    got = load_outcome(cls, payload, attr=column)
+    if got[0] == 'ok' and isinstance(got[1], s.Seared):
+        return ('ok', type(got[1]).dump(got[1]), got[2])
+    return got
+
+
+@pytest.mark.parametrize('validate', [True, False], ids=['strict', 'lax'])
+class TestNullRule:
+    """Pin: a ``null`` is a value only on a nullable field; anywhere else it reads as an absent key."""
+
+    @pytest.mark.parametrize('column', list(NULL_COLUMNS))
+    def test_every_wire_state_matches(self, validate, column):
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        for wire in (_ABSENT, None, NULL_COLUMNS[column]):
+            assert _loaded(fast, column, wire) == _loaded(slow, column, wire), (column, wire)
+
+    @pytest.mark.parametrize('column', list(NULL_TABLE))
+    def test_the_null_table(self, validate, column):
+        fast = null_schema(validate=validate, accel=True)
+        for wire, want in zip((_ABSENT, None, 7), NULL_TABLE[column], strict=True):
+            got = _loaded(fast, column, wire)
+            assert (got[3] if got[0] == 'raised' else got[1]) == want, (column, wire)
+
+    def test_a_nullable_container_or_class_can_be_null(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        got = fast.load({**NULL_BASE, 'n_many': None, 'n_keyed': None, 'n_leaf': None})
+        assert (got.n_many, got.n_keyed, got.n_leaf) == (None, None, None)
+
+    def test_a_null_takes_the_default_factory(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        assert fast.load({**NULL_BASE, 'factory': None}).factory == []
+
+    def test_a_null_on_a_required_field_names_its_wire_key(self, validate):
+        fast = null_schema(validate=validate, accel=True)
+        with pytest.raises(s.ValidationError) as info:
+            fast.load({**NULL_BASE, 'req': None})
+        assert (str(info.value), info.value.path) == ('Row.req: required key missing', ('req',))
+
+    def test_a_null_element_still_goes_through_the_field(self, validate):
+        # ``nullable`` is about the field's own value, not its elements.
+        fast, slow = null_schema(validate=validate, accel=True), null_schema(validate=validate, accel=False)
+        payload = {**NULL_BASE, 'n_many': [1, None]}
+        got, want = outcome(fast.load, payload), outcome(slow.load, payload)
+        assert got == want
+        assert got[4] == ('n_many', 1)

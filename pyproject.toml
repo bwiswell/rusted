@@ -1,6 +1,6 @@
 [project]
 name = "rusted"
-version = "0.3.2"
+version = "0.4.0"
 description = "Compiled accelerator core for seared"
 authors = [
     { name = "Benj Wiswell", email = "benjwiswell@gmail.com" },
@@ -15,24 +15,24 @@ dev = [
     "deptry",
     "maturin>=1.7,<2.0",
     "prek",
-    "pytest>=8.0,<9.0",
+    "pytest>=8.0,<10.0",
     "ruff",
     # Test-only, and the floor is the seared this build is tested against —
     # the same range `SUPPORTS_SEARED` declares.
-    "seared>=0.3.4,<0.4",
+    "seared>=0.4,<0.5",
     "ty",
 ]
 
 [tool.uv.sources]
-# The remote at a release tag. uv doesn't check the version range above
-# against a git source, so the tag is what pins it: without one, a
+# The remote at a release tag once one exists. uv doesn't check the version
+# range above against a git source, so the tag is what pins it: without one, a
 # `uv lock --upgrade` would take whatever seared's `master` holds. Moving to a
 # new seared release means moving the tag, then
 # `uv lock --upgrade-package seared` (a plain `uv lock` keeps the locked
 # commit). To test a seam change before it is pushed, point this at the
 # sibling checkout locally:
 #   seared = { path = "../seared", editable = true }
-seared = { git = "https://github.com/bwiswell/seared", tag = "v0.3.4" }
+seared = { git = "https://github.com/bwiswell/seared", tag = "v0.4.0" }
 
 [build-system]
 requires = ["maturin>=1.7,<2.0"]
