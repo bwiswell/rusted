@@ -11,7 +11,8 @@ lines as it lands, and the entry is dated when that version is released.
 
 ## 0.4.0 — unreleased
 
-**`SPEC_ABI` 2, for seared 0.4.0, and the changelog in the repository.**
+**`SPEC_ABI` 2, for seared 0.4.0: errors that say where they happened, `null` read as absent, and lossless strict
+coercion.**
 
 ### Added
 
@@ -59,7 +60,15 @@ lines as it lands, and the entry is dated when that version is released.
   accelerate again.
 - **Supported seared:** `>=0.4,<0.5`, from `>=0.3.4,<0.4`. The floor is the first seared to emit `SPEC_ABI` 2.
 - **Dependencies:** seared, the test-only dependency, follows seared's `version/0.4.0` branch (`>=0.4,<0.5`), with
-  the lockfile pinning a commit, until seared 0.4.0 is tagged.
+  the lockfile pinning a commit, until seared 0.4.0 is tagged. The dev group's `pytest` range lifts to
+  `>=8.0,<10.0`; the lockfile stays on 8.4.2 until the release's relock, and the suite passes on 9.1.1.
+- **Built with pyo3 0.30 and Rust 1.99.1,** from pyo3 0.26 and Rust 1.98.0. Speed is unchanged: timed against a
+  0.26 build of the same code, every `load` and `dump` figure moved by less than the spread between runs. The wheel
+  is still `abi3-py314`, building from source still needs Rust 1.85 or later, and pyo3 0.30 needs five fewer
+  crates.
+- The README links seared's generated benchmark tables for the numbers, where it carried a hand-copied table that
+  had drifted, installs by the `v0.4.0` tag, and names two more reasons a class stays on the Python path: a plain
+  dataclass attribute, and an enum with no members.
 
 ### Fixed
 

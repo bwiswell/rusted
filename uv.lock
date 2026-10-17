@@ -200,7 +200,7 @@ dev = [
     { name = "deptry" },
     { name = "maturin", specifier = ">=1.7,<2.0" },
     { name = "prek" },
-    { name = "pytest", specifier = ">=8.0,<9.0" },
+    { name = "pytest", specifier = ">=8.0,<10.0" },
     { name = "ruff" },
     { name = "seared", git = "https://github.com/bwiswell/seared?branch=version%2F0.4.0" },
     { name = "ty" },

@@ -15,7 +15,7 @@ dev = [
     "deptry",
     "maturin>=1.7,<2.0",
     "prek",
-    "pytest>=8.0,<9.0",
+    "pytest>=8.0,<10.0",
     "ruff",
     # Test-only, and the floor is the seared this build is tested against —
     # the same range `SUPPORTS_SEARED` declares.

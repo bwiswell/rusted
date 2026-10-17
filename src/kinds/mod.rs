@@ -135,7 +135,7 @@ where
         // A failing item's key joins the error's path, as seared's
         // `_first_failure` adds it: the key object itself, not its str.
         let out = PyDict::new(py);
-        if let Ok(d) = v.downcast::<PyDict>() {
+        if let Ok(d) = v.cast::<PyDict>() {
             for (k, item) in d.iter() {
                 let x = one(&item).map_err(|e| relocate(py, e, err, Some(&k), None))?;
                 out.set_item(k, x)?;
@@ -164,7 +164,7 @@ where
             relocate(py, e, err, Some(index.as_any()), None)
         };
         let mut out: Vec<Py<PyAny>> = Vec::new();
-        if let Ok(list) = v.downcast::<PyList>() {
+        if let Ok(list) = v.cast::<PyList>() {
             out.reserve(list.len());
             for (i, item) in list.iter().enumerate() {
                 out.push(one(&item).map_err(|e| at(i, e))?);

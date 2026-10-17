@@ -115,10 +115,10 @@ pub(crate) fn parse(py: Python<'_>, spec: &Bound<'_, PyDict>) -> PyResult<Option
         )));
     }
     let cls = item(spec, "cls")?
-        .downcast_into::<PyType>()
+        .cast_into::<PyType>()
         .map_err(|_| PyTypeError::new_err("spec 'cls' must be a class"))?;
     let error = item(spec, "error")?
-        .downcast_into::<PyType>()
+        .cast_into::<PyType>()
         .map_err(|_| PyTypeError::new_err("spec 'error' must be an exception class"))?;
     let name: String = item(spec, "name")?.extract()?;
     let validate: bool = item(spec, "validate")?.extract()?;
@@ -129,12 +129,12 @@ pub(crate) fn parse(py: Python<'_>, spec: &Bound<'_, PyDict>) -> PyResult<Option
 
     let raw = item(spec, "fields")?;
     let raw = raw
-        .downcast::<PyList>()
+        .cast::<PyList>()
         .map_err(|_| PyTypeError::new_err("spec 'fields' must be a list"))?;
     let mut fields = Vec::with_capacity(raw.len());
     for f in raw.iter() {
         let f = f
-            .downcast_into::<PyDict>()
+            .cast_into::<PyDict>()
             .map_err(|_| PyTypeError::new_err("each field spec must be a dict"))?;
         let Some(field) = parse_field(py, &f)? else {
             return Ok(None);
@@ -180,13 +180,13 @@ fn parse_field(py: Python<'_>, f: &Bound<'_, PyDict>) -> PyResult<Option<FieldSp
         }
         "path" => Kind::Path {
             concrete: item(f, "concrete")?
-                .downcast_into::<PyType>()
+                .cast_into::<PyType>()
                 .map_err(|_| PyTypeError::new_err("a path field spec needs a 'concrete' class"))?
                 .unbind(),
         },
         "enum" => {
             let cls = item(f, "enum")?
-                .downcast_into::<PyType>()
+                .cast_into::<PyType>()
                 .map_err(|_| PyTypeError::new_err("an enum field spec needs an 'enum' class"))?;
             // seared reads `next(iter(enum)).value` to choose int-vs-plain
             // lookup, which raises StopIteration on an empty enum. Rather than
@@ -206,7 +206,7 @@ fn parse_field(py: Python<'_>, f: &Bound<'_, PyDict>) -> PyResult<Option<FieldSp
         "nested" => {
             let sub = item(f, "schema")?;
             let sub = sub
-                .downcast::<PyDict>()
+                .cast::<PyDict>()
                 .map_err(|_| PyTypeError::new_err("a nested field spec needs a 'schema' dict"))?;
             // A nested class this build can't take disqualifies the parent:
             // acceleration is per-class all-or-nothing, recursively.

@@ -9,7 +9,7 @@ that the cache stays stable across calls.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import decimal
 import pathlib
 import uuid
@@ -19,10 +19,10 @@ from conftest import KIND_VALUES, one_field
 
 EXPECTED = {
     'uuid': uuid.UUID,
-    'date': datetime.date,
-    'datetime': datetime.datetime,
-    'time': datetime.time,
-    'timedelta': datetime.timedelta,
+    'date': dt.date,
+    'datetime': dt.datetime,
+    'time': dt.time,
+    'timedelta': dt.timedelta,
     'decimal': decimal.Decimal,
     # `Path(...)` constructs the host's concrete flavour (PosixPath here),
     # which is what `concrete=` defaults to on the seared side.

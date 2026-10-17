@@ -227,16 +227,17 @@ RETRIEVABLE = [
 ]
 
 
+@pytest.fixture(scope='class')
+def roots():
+    return path_schema(accel=True), path_schema(accel=False)
+
+
 class TestErrorPaths:
     """Pin the ``SPEC_ABI`` 2 error contract on ``load``: the same reason, path and class as seared.
 
     The path holds wire keys, list indices and keyed-dict keys (the key
     object itself), and ``cls_name`` is the outermost class.
     """
-
-    @pytest.fixture(scope='class')
-    def roots(self):
-        return path_schema(accel=True), path_schema(accel=False)
 
     @pytest.mark.parametrize(('label', 'payload'), PATH_CASES, ids=[c[0] for c in PATH_CASES])
     def test_parts_match(self, roots, label, payload):

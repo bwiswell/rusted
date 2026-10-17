@@ -3,5 +3,5 @@
 # The *minimum* supported version is Cargo.toml's `rust-version`, which is a
 # looser floor for anyone building the sdist.
 [toolchain]
-channel = "1.98.0"
+channel = "1.99.1"
 components = ["rustfmt", "clippy"]

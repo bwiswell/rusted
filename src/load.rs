@@ -24,7 +24,7 @@ pub(crate) fn load(
     format: &str,
 ) -> PyResult<Py<PyAny>> {
     let err = schema.error.bind(py);
-    let Ok(dict) = data.downcast::<PyDict>() else {
+    let Ok(dict) = data.cast::<PyDict>() else {
         return Err(verr_at(
             py,
             err,
