@@ -24,7 +24,7 @@ from conftest import Color, bench_schema, checked, load_outcome, null_schema, on
 
 if TYPE_CHECKING:
     # Annotation-only: seared reads the Field defaults, not the annotations.
-    import datetime
+    import datetime as dt
     import decimal
     import pathlib
     import uuid
@@ -67,6 +67,22 @@ CASES = {
 }
 IDS = list(CASES)
 
+#: The ``CASES`` each mode loads; it refuses the rest. The dump tests run only
+#: these, and ``TestCaseLists`` pins them, so a case that changes sides shows
+#: up as a failure rather than a skip.
+LOADING = {
+    'strict': [
+        'valid', 'int-from-str', 'int-overflow-str', 'float-from-str', 'float-from-int', 'float-inf',
+        'bool-from-str', 'bool-from-int', 'many-tuple', 'unknown-keys', 'defaults-omitted',
+    ],
+    'lax': [
+        'valid', 'int-from-str', 'int-from-float', 'int-from-bool', 'int-overflow-str', 'float-from-str',
+        'float-from-int', 'float-inf', 'str-wrong-type', 'bool-from-str', 'bool-from-int', 'bool-garbage',
+        'many-not-a-list', 'many-tuple', 'many-with-none', 'unknown-keys', 'defaults-omitted',
+    ],
+}  # fmt: skip
+DUMP_CASES = [(mode, case) for mode, cases in LOADING.items() for case in cases]
+
 
 @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
 def schemas(request):
@@ -86,14 +102,16 @@ class TestParity:
             assert got[0] == 'ok'
             assert fast.dump(got[1]) == slow.dump(want[1])
 
-    def test_dump(self, schemas, case):
-        fast, slow = schemas
+
+class TestDumpParity:
+    """``dump`` over every payload a mode loads (``LOADING``); load parity is ``TestParity``'s job."""
+
+    @pytest.mark.parametrize(('mode', 'case'), DUMP_CASES, ids=[f'{m}-{c}' for m, c in DUMP_CASES])
+    def test_dump(self, mode, case):
+        validate = mode == 'strict'
+        fast, slow = bench_schema(validate=validate, accel=True), bench_schema(validate=validate, accel=False)
         payload = CASES[case]
-        try:
-            fast_obj, slow_obj = fast.load(payload), slow.load(payload)
-        except Exception:  # noqa: BLE001 — load parity is the other test's job
-            pytest.skip('payload does not load')
-        assert outcome(fast.dump, fast_obj) == outcome(slow.dump, slow_obj)
+        assert outcome(fast.dump, fast.load(payload)) == outcome(slow.dump, slow.load(payload))
 
 
 class TestCodecsRideAlong:
@@ -135,9 +153,9 @@ def mixed_schema(*, validate: bool = True, accel: bool = True):
     @s.seared(accel=accel, validate=validate)
     class Reading(s.Seared):
         ident: uuid.UUID = s.UUID(required=True)
-        when: datetime.datetime = s.DateTime(required=True)
-        day: datetime.date = s.Date()
-        elapsed: datetime.timedelta = s.TimeDelta()
+        when: dt.datetime = s.DateTime(required=True)
+        day: dt.date = s.Date()
+        elapsed: dt.timedelta = s.TimeDelta()
         amount: decimal.Decimal = s.Decimal()
         blob: bytes = s.Bytes()
         state: Color = s.Enum(enum=Color)
@@ -182,6 +200,14 @@ MIXED_CASES = {
 }
 
 
+#: The ``MIXED_CASES`` each mode loads, as ``LOADING`` is for ``CASES``.
+MIXED_LOADING = {
+    'strict': ['valid', 'minimal'],
+    'lax': ['valid', 'minimal', 'bad-decimal', 'bad-path'],
+}
+MIXED_ROUND_TRIPS = [(mode, case) for mode, cases in MIXED_LOADING.items() for case in cases]
+
+
 class TestMixedClassParity:
     @pytest.fixture(params=[True, False], ids=['strict', 'lax'])
     def mixed(self, request):
@@ -206,15 +232,12 @@ class TestMixedClassParity:
             assert got[0] == 'ok'
             assert same(fast.dump(got[1]), slow.dump(want[1]))
 
-    @pytest.mark.parametrize('case', list(MIXED_CASES))
-    def test_round_trip(self, mixed, case):
-        fast, slow = mixed
+    @pytest.mark.parametrize(('mode', 'case'), MIXED_ROUND_TRIPS, ids=[f'{m}-{c}' for m, c in MIXED_ROUND_TRIPS])
+    def test_round_trip(self, mode, case):
+        validate = mode == 'strict'
+        fast, slow = mixed_schema(validate=validate, accel=True), mixed_schema(validate=validate, accel=False)
         payload = MIXED_CASES[case]
-        try:
-            fast_obj, slow_obj = fast.load(payload), slow.load(payload)
-        except Exception:  # noqa: BLE001 — load parity is the other test's job
-            pytest.skip('payload does not load')
-        assert same(outcome(fast.dump, fast_obj), outcome(slow.dump, slow_obj))
+        assert same(outcome(fast.dump, fast.load(payload)), outcome(slow.dump, slow.load(payload)))
 
     def test_valid_payload_round_trips_exactly(self, mixed):
         fast, _slow = mixed
@@ -359,3 +382,20 @@ class TestLaxBool:
     def test_strict_bool_still_accelerates(self):
         checked(one_field('bool'), accel=True)
         checked(bench_schema(), accel=True)
+
+
+class TestCaseLists:
+    """``LOADING`` and ``MIXED_LOADING`` name exactly the cases each mode loads, so the
+    dump tests skip nothing without saying so."""
+
+    @pytest.mark.parametrize('mode', ['strict', 'lax'])
+    @pytest.mark.parametrize('case', IDS)
+    def test_bench_case(self, mode, case):
+        slow = bench_schema(validate=mode == 'strict', accel=False)
+        assert (outcome(slow.load, CASES[case])[0] == 'ok') is (case in LOADING[mode])
+
+    @pytest.mark.parametrize('mode', ['strict', 'lax'])
+    @pytest.mark.parametrize('case', list(MIXED_CASES))
+    def test_mixed_case(self, mode, case):
+        slow = mixed_schema(validate=mode == 'strict', accel=False)
+        assert (outcome(slow.load, MIXED_CASES[case])[0] == 'ok') is (case in MIXED_LOADING[mode])

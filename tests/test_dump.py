@@ -136,12 +136,13 @@ class TestErrorPaths:
         assert (info.value.path, info.value.cls_name) == (('readers', 'r-1', 'port'), 'Root')
 
 
+@pytest.fixture(scope='class')
+def rows():
+    return null_schema(accel=True), null_schema(accel=False)
+
+
 class TestNullRule:
     """Pin: ``dump`` writes ``None`` only on a nullable field, and leaves it out everywhere else."""
-
-    @pytest.fixture(scope='class')
-    def rows(self):
-        return null_schema(accel=True), null_schema(accel=False)
 
     def test_only_a_nullable_none_is_written(self, rows):
         fast, slow = rows

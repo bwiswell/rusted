@@ -8,7 +8,7 @@ two are indistinguishable, values *and* exceptions.
 
 from __future__ import annotations
 
-import datetime
+import datetime as dt
 import decimal
 import enum
 import math
@@ -89,18 +89,18 @@ KIND_VALUES = {
         '2026-08-31',
         '2026-02-30',
         '31/08/2026',
-        datetime.date(2026, 8, 31),
-        datetime.datetime(2026, 8, 31, 12, 0),
+        dt.date(2026, 8, 31),
+        dt.datetime(2026, 8, 31, 12, 0),
     ],
     'datetime': [
         '2026-08-31T12:30:00',
         '2026-08-31 12:30:00+00:00',
         '2026-08-31',
         'nope',
-        datetime.datetime(2026, 8, 31, 12, 0),
+        dt.datetime(2026, 8, 31, 12, 0),
     ],
-    'time': ['12:30', '12:30:45', '25:00', datetime.time(12, 30)],
-    'timedelta': [0, 90.5, '90.5', -1, datetime.timedelta(seconds=90.5)],
+    'time': ['12:30', '12:30:45', '25:00', dt.time(12, 30)],
+    'timedelta': [0, 90.5, '90.5', -1, dt.timedelta(seconds=90.5)],
     'decimal': ['3.14159', '1e400', 'nan', '0', 3.5, 1, decimal.Decimal('3.14')],
     'bytes': ['ZGVhZGJlZWY=', 'deadbeef', 'not!base64!', b'raw', bytearray(b'raw')],
     # Int-valued: seared's `Int` rules pick the key, so a fractional float or a
