@@ -9,7 +9,7 @@ only when the two match, and within that, outside a build's declared range, the 
 The top entry, while it reads *unreleased*, collects what has merged for the next version; each change adds its own
 lines as it lands, and the entry is dated when that version is released.
 
-## 0.4.0 — 2026-10-16
+## 0.4.0 — 2026-10-17
 
 **`SPEC_ABI` 2, for seared 0.4.0: errors that say where they happened, `null` read as absent, and lossless strict
 coercion.**
